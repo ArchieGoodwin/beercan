@@ -97,7 +97,7 @@ describe("JobQueue", () => {
 
     queue.setExecutor(async (opts) => {
       results.push(opts.goal);
-      return { id: "", status: "completed" }; // empty id = no loop_id FK
+      return { id: "", status: "completed" }; // empty id = no bloop_id FK
     });
 
     queue.enqueue({ projectSlug: "test", goal: "A" });

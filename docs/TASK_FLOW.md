@@ -6,20 +6,20 @@ How a task goes from a user command to a completed result with agent collaborati
 
 ## 1. Entry Points
 
-A loop can be triggered three ways:
+A bloop can be triggered three ways:
 
 | Entry | How | Code Path |
 |-------|-----|-----------|
-| **CLI** | `beercan run <project> [team] <goal>` | `cli.ts` → `engine.runLoop()` |
-| **Scheduler** | Cron expression fires | `Scheduler.executeSchedule()` → `engine.runLoop()` |
-| **Event** | Webhook/filesystem/polling trigger matches | `TriggerManager.matchAndSpawn()` → `engine.runLoop()` |
-| **API** | TypeScript import | `engine.runLoop({ projectSlug, goal, team })` |
+| **CLI** | `beercan run <project> [team] <goal>` | `cli.ts` → `engine.runBloop()` |
+| **Scheduler** | Cron expression fires | `Scheduler.executeSchedule()` → `engine.runBloop()` |
+| **Event** | Webhook/filesystem/polling trigger matches | `TriggerManager.matchAndSpawn()` → `engine.runBloop()` |
+| **API** | TypeScript import | `engine.runBloop({ projectSlug, goal, team })` |
 
-All four converge at `BeerCanEngine.runLoop()`.
+All four converge at `BeerCanEngine.runBloop()`.
 
 ---
 
-## 2. Loop Lifecycle
+## 2. Bloop Lifecycle
 
 ```
                          ┌──────────────────────────────────────┐
@@ -28,7 +28,7 @@ All four converge at `BeerCanEngine.runLoop()`.
                          └──────────────────┬───────────────────┘
                                             │
                          ┌──────────────────▼───────────────────┐
-                         │       BeerCanEngine.runLoop()           │
+                         │       BeerCanEngine.runBloop()           │
                          │                                       │
                          │  1. Resolve project from DB by slug   │
                          │  2. Connect MCP servers (lazy)        │
@@ -40,9 +40,9 @@ All four converge at `BeerCanEngine.runLoop()`.
                          └──────────────────┬───────────────────┘
                                             │
                          ┌──────────────────▼───────────────────┐
-                         │         LoopRunner.run()              │
+                         │         BloopRunner.run()              │
                          │                                       │
-                         │  4. Create Loop record (status:running)│
+                         │  4. Create Bloop record (status:running)│
                          │  5. Set currentLoopContext             │
                          │  6. WorkingMemory.createScope()       │
                          │  7. Retrieve past context (hybrid     │
@@ -151,7 +151,7 @@ The reason is extracted from text after the tag, or the last paragraph before it
 Each pipeline stage runs one agent through a tool-calling conversation loop.
 
 ```
- executeAgent(loop, project, role, pipelineContext, options)
+ executeAgent(bloop, project, role, pipelineContext, options)
  │
  ├── Build system prompt
  │   ├── Role's systemPrompt (instructions for this agent)
@@ -176,24 +176,24 @@ Each pipeline stage runs one agent through a tool-calling conversation loop.
       │    └── messages: conversation history
       │
       ├── Track token usage
-      │   └── loop.tokensUsed += input_tokens + output_tokens
+      │   └── bloop.tokensUsed += input_tokens + output_tokens
       │
       ├── Process response blocks
       │   │
       │   ├── TextBlock → finalContent
       │   │   ├── Emit "agent_message" event
-      │   │   └── Store in loop.messages as "[RoleName] {text}"
+      │   │   └── Store in bloop.messages as "[RoleName] {text}"
       │   │
       │   └── ToolUseBlock → execute tool
       │       ├── Emit "tool_call" event
       │       ├── tools.execute(name, input) → { output?, error? }
-      │       ├── Record in loop.toolCalls with timing
+      │       ├── Record in bloop.toolCalls with timing
       │       ├── Emit "tool_result" event
       │       └── Collect tool_result for next API call
       │
       ├── If tool calls happened:
       │   ├── Append assistant + tool_results to messages
-      │   ├── Save loop progress to DB
+      │   ├── Save bloop progress to DB
       │   └── Continue loop (next iteration)
       │
       └── If no tool calls (end_turn):
@@ -220,7 +220,7 @@ Agent: "I need to read the config file"
   └── Feed result back to agent as tool_result message
 ```
 
-For **memory tools**, the handler accesses the current loop context via closure:
+For **memory tools**, the handler accesses the current bloop context via closure:
 
 ```
 Agent: "I should remember this pattern"
@@ -312,12 +312,12 @@ Tester agent (later phase):
 ### After Execution: Result Persistence
 
 ```
-MemoryManager.storeLoopResult(loop, projectSlug)
+MemoryManager.storeBloopResult(bloop, projectSlug)
   │
   ├── Create MemoryEntry:
   │   { id: uuid, projectId, memoryType: "loop_result",
-  │     title: loop.goal, content: result summary,
-  │     sourceLoopId: loop.id }
+  │     title: bloop.goal, content: result summary,
+  │     sourceBloopId: bloop.id }
   │
   ├── Insert into memory_entries
   │   └── Mirror to memory_entries_fts (FTS5 indexed)
@@ -403,15 +403,15 @@ Cycle 2/3  (shouldRestart = true → new cycle)
 
 ---
 
-## 8. Loop Record (What Gets Persisted)
+## 8. Bloop Record (What Gets Persisted)
 
-After execution, the Loop record in SQLite contains:
+After execution, the Bloop record in SQLite contains:
 
 ```typescript
 {
   id: "550e8400-e29b-...",
   projectId: "project-uuid",
-  parentLoopId: null,             // or parent loop UUID
+  parentBloopId: null,             // or parent bloop UUID
   trigger: "manual",              // manual | cron | event | child_of
   status: "completed",            // created | running | waiting | completed | failed | timeout
   goal: "Add input validation to the API",
@@ -442,7 +442,7 @@ After execution, the Loop record in SQLite contains:
 }
 ```
 
-Additionally, the loop's result is stored in the memory system (FTS5 + vector) for future loops to discover.
+Additionally, the bloop's result is stored in the memory system (FTS5 + vector) for future bloops to discover.
 
 ---
 
@@ -450,17 +450,17 @@ Additionally, the loop's result is stored in the memory system (FTS5 + vector) f
 
 | Failure Point | Behavior |
 |--------------|----------|
-| Unknown project slug | `runLoop()` throws before creating Loop |
-| Unknown role in pipeline | `executePipeline()` throws, Loop marked failed |
-| Claude API error | `run()` catches, Loop marked failed with error message |
+| Unknown project slug | `runBloop()` throws before creating Bloop |
+| Unknown role in pipeline | `executePipeline()` throws, Bloop marked failed |
+| Claude API error | `run()` catches, Bloop marked failed with error message |
 | Tool execution error | Caught by ToolRegistry, returned as `{ error }` to agent |
 | Agent exceeds maxIterations | Agent phase exits, returns last content |
 | Pipeline exceeds maxCycles | Returns result with `warning: "Max pipeline cycles reached"` |
-| Memory store fails | Caught, warning logged, loop execution continues |
+| Memory store fails | Caught, warning logged, bloop execution continues |
 | Working memory | Cleaned up in `finally` block regardless of success/failure |
-| Loop context | Cleared in `finally` block regardless of success/failure |
+| Bloop context | Cleared in `finally` block regardless of success/failure |
 
-Tool errors don't crash the loop — the error is returned to the agent as a tool_result, and the agent can decide how to proceed.
+Tool errors don't crash the bloop — the error is returned to the agent as a tool_result, and the agent can decide how to proceed.
 
 ---
 
@@ -494,7 +494,7 @@ Goal template interpolation:
   → "Process incoming: deploy v2"
 ```
 
-Both paths end at the same `engine.runLoop()` → same full execution flow.
+Both paths end at the same `engine.runBloop()` → same full execution flow.
 
 ---
 
@@ -511,9 +511,9 @@ failed     7a3b9c12  Deploy to staging                   8,200 tokens   5 iter  
 # Filter by status
 $ beercan history my-project --status completed
 
-# Get full details for a loop (partial ID match works)
+# Get full details for a bloop (partial ID match works)
 $ beercan result 550e84
-Loop Details
+Bloop Details
   ID:         550e8400-e29b-...
   Status:     completed
   Goal:       Add input validation to the API
@@ -541,23 +541,23 @@ My API (my-api)  dir: /Users/me/projects/my-api
 ### Programmatic API
 
 ```typescript
-// Get a specific loop
-const loop = engine.getLoop("550e8400-e29b-...");
-console.log(loop.status);          // "completed"
-console.log(loop.result);          // { summary: "...", cycles: 1 }
-console.log(loop.toolCalls);       // [{ toolName: "write_file", ... }, ...]
-console.log(loop.tokensUsed);      // 15420
+// Get a specific bloop
+const bloop = engine.getBloop("550e8400-e29b-...");
+console.log(bloop.status);          // "completed"
+console.log(bloop.result);          // { summary: "...", cycles: 1 }
+console.log(bloop.toolCalls);       // [{ toolName: "write_file", ... }, ...]
+console.log(bloop.tokensUsed);      // 15420
 
 // List all loops for a project
-const loops = engine.getProjectLoops("my-project");
-const failed = engine.getProjectLoops("my-project", "failed");
+const loops = engine.getProjectBloops("my-project");
+const failed = engine.getProjectBloops("my-project", "failed");
 
-// Loop result is also in the memory system for future discovery
+// Bloop result is also in the memory system for future discovery
 const context = await engine.getMemoryManager().retrieveContext("my-project", "validation");
-// Returns relevant memories including past loop results
+// Returns relevant memories including past bloop results
 ```
 
-### What's stored per loop
+### What's stored per bloop
 
 | Field | Content |
 |-------|---------|
@@ -570,8 +570,8 @@ const context = await engine.getMemoryManager().retrieveContext("my-project", "v
 
 ### Automatic memory persistence
 
-Every completed loop is automatically stored in the memory system:
+Every completed bloop is automatically stored in the memory system:
 1. `memory_entries` table — title=goal, content=result summary (FTS5 searchable)
 2. `memory_vectors` — TF-IDF embedding of goal+summary (KNN searchable)
 
-Future loops see these via `retrieveContext()` → hybrid search finds relevant past results.
+Future bloops see these via `retrieveContext()` → hybrid search finds relevant past results.

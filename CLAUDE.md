@@ -23,44 +23,44 @@ CLI commands via `npm run beercan --` (or `beercan` if installed globally):
 **Projects:**
 - `init <name> [--work-dir <path>]` — create a project, optionally scoped to a folder
 - `projects` — list all projects
-- `status` — overview of all projects with loop counts and token usage
+- `status` — overview of all projects with bloop counts and token usage
 
-**Loop execution:**
-- `run <project> [team] <goal>` — run a loop (teams: auto, solo, code_review, managed, full_team). Default team is `auto` (gatekeeper picks).
-- `bootstrap <goal>` — self-improvement loop on this codebase
+**Bloop execution:**
+- `run <project> [team] <goal>` — run a bloop (teams: auto, solo, code_review, managed, full_team). Default team is `auto` (gatekeeper picks).
+- `bootstrap <goal>` — self-improvement bloop on this codebase
 
 **Results & history:**
-- `history <project> [--status <s>]` — list past loops with status, tokens, timestamps
-- `result <loop-id>` — full loop details: result, tool calls, tokens (supports partial ID match)
-- `status <loop-id>` — quick status check for a specific loop
+- `history <project> [--status <s>]` — list past bloops with status, tokens, timestamps
+- `result <bloop-id>` — full bloop details: result, tool calls, tokens (supports partial ID match)
+- `status <bloop-id>` — quick status check for a specific bloop
 
 **Job queue:**
 - `jobs [status]` — view job queue (pending, running, completed, failed counts)
 
 **Scheduling & events:**
-- `schedule:add/list/remove` — cron-based loop scheduling
+- `schedule:add/list/remove` — cron-based bloop scheduling
 - `trigger:add/list/remove` — event-based triggers
 - `mcp:add/list` — MCP server management per project
 - `daemon` — run scheduler + event system
 
 ## Architecture
 
-**Three-tier model:** Projects (sandboxed contexts with optional working directory) contain Loops (atomic agent tasks) executed by Teams (role pipelines).
+**Three-tier model:** Projects (sandboxed contexts with optional working directory) contain Bloops (atomic agent tasks) executed by Teams (role pipelines).
 
-**Execution flow:** `LoopsEngine.runLoop()` → Gatekeeper analyzes goal (if team is "auto") → composes dynamic team + roles → creates Loop record → initializes working memory → retrieves hybrid memory context → `LoopRunner.executePipeline()` → cycles through team stages → agents use tools (filesystem, web, memory, notification) → handles APPROVE/REVISE/REJECT decisions → stores result in DB + memory → cleans up.
+**Execution flow:** `BeerCanEngine.runBloop()` → Gatekeeper analyzes goal (if team is "auto") → composes dynamic team + roles → creates Bloop record → initializes working memory → retrieves hybrid memory context → `BloopRunner.executePipeline()` → cycles through team stages → agents use tools (filesystem, web, memory, notification) → handles APPROVE/REVISE/REJECT decisions → stores result in DB + memory → cleans up.
 
 **Key source files:**
-- `src/index.ts` — `LoopsEngine`, main public API (runLoop, enqueueLoop, getLoop, getProjectLoops)
+- `src/index.ts` — `BeerCanEngine`, main public API (runBloop, enqueueBloop, getBloop, getProjectBloops)
 - `src/core/gatekeeper.ts` — `Gatekeeper`, pre-flight goal analysis, dynamic team composition
 - `src/core/job-queue.ts` — `JobQueue`, SQLite-backed job queue with concurrency semaphore
 - `src/core/logger.ts` — `Logger`, structured JSON logging to stdout + file
 - `src/core/role-templates.ts` — 9 dynamic role templates (writer, researcher, analyst, data_processor, summarizer, planner, editor, devops, architect)
-- `src/core/runner.ts` — `LoopRunner`, pipeline execution with multi-agent orchestration
+- `src/core/runner.ts` — `BloopRunner`, pipeline execution with multi-agent orchestration
 - `src/core/roles.ts` — 5 built-in agent role definitions, team presets, pipeline configs
-- `src/schemas.ts` — core domain types as Zod schemas (Loop, Project with workDir, ToolCallRecord)
+- `src/schemas.ts` — core domain types as Zod schemas (Bloop, Project with workDir, ToolCallRecord)
 - `src/config.ts` — environment config with Zod validation
 - `src/cli.ts` — CLI with run/history/result/status/jobs commands
-- `src/storage/database.ts` — `LoopsDB`, SQLite via better-sqlite3 + sqlite-vec, WAL mode, 10 migrations
+- `src/storage/database.ts` — `BeerCanDB`, SQLite via better-sqlite3 + sqlite-vec, WAL mode, 10 migrations
 - `src/tools/registry.ts` — tool registration and dispatch
 - `src/tools/builtin/filesystem.ts` — tools: read_file, write_file, list_directory, exec_command
 - `src/tools/builtin/web.ts` — tools: web_fetch (Cloudflare Browser Rendering + native fallback), http_request
@@ -69,9 +69,9 @@ CLI commands via `npm run beercan --` (or `beercan` if installed globally):
 - `src/memory/` — layered memory system (see Memory Architecture below)
 - `src/mcp/` — Model Context Protocol integration (stdio transport, per-project config)
 - `src/events/` — event system with webhook, filesystem, polling, and macOS sources
-- `src/scheduler/` — cron-based loop scheduling via node-cron
+- `src/scheduler/` — cron-based bloop scheduling via node-cron
 
-**Storage:** SQLite via better-sqlite3 + sqlite-vec extension. All data in `~/.beercan/orchestrator.db`. Per-project config in `~/.beercan/projects/<slug>/`. Structured logs in `~/.beercan/loops.log`.
+**Storage:** SQLite via better-sqlite3 + sqlite-vec extension. All data in `~/.beercan/orchestrator.db`. Per-project config in `~/.beercan/projects/<slug>/`. Structured logs in `~/.beercan/beercan.log`.
 
 ## Project Working Directory
 
@@ -94,9 +94,9 @@ Pre-flight analysis step that dynamically composes the right team for any goal. 
 
 SQLite-backed job queue with concurrency semaphore. Scheduler and event triggers route through the queue instead of fire-and-forget.
 
-- **Concurrency:** `BEERCAN_MAX_CONCURRENT` (default 2) — max simultaneous loop executions
+- **Concurrency:** `BEERCAN_MAX_CONCURRENT` (default 2) — max simultaneous bloop executions
 - **Priority:** higher priority jobs execute first, FIFO within same priority
-- **Direct vs queued:** `engine.runLoop()` executes directly (CLI), `engine.enqueueLoop()` goes through queue (scheduler/triggers)
+- **Direct vs queued:** `engine.runBloop()` executes directly (CLI), `engine.enqueueBloop()` goes through queue (scheduler/triggers)
 - **Graceful shutdown:** `drain()` waits for all running + pending jobs
 
 ## Tool System
@@ -117,7 +117,7 @@ SQLite-backed job queue with concurrency semaphore. Scheduler and event triggers
 | `memory_update` | Memory | Supersede existing memory with new version |
 | `memory_link` | Memory | Create entities and edges in the knowledge graph |
 | `memory_query_graph` | Memory | Traverse knowledge graph (multi-hop BFS) |
-| `memory_scratch` | Memory | Read/write per-loop working memory scratchpad |
+| `memory_scratch` | Memory | Read/write per-bloop working memory scratchpad |
 
 **Cloudflare Browser Rendering:** Set `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID` env vars to enable. Fetches clean markdown from JS-rendered pages via their crawl endpoint.
 
@@ -128,32 +128,32 @@ Four-layer system with unified hybrid search:
 - **Layer 1 — Structured (FTS5):** `memory_entries` table with FTS5 virtual table for BM25-ranked keyword search.
 - **Layer 2 — Semantic (Vector):** sqlite-vec extension (`memory_vectors` vec0 table) with TF-IDF embeddings (512-dim, local).
 - **Layer 3 — Knowledge Graph:** `kg_entities` + `kg_edges` tables. Multi-hop BFS traversal.
-- **Layer 4 — Working Memory:** Per-loop ephemeral scratchpad with SQLite write-through.
+- **Layer 4 — Working Memory:** Per-bloop ephemeral scratchpad with SQLite write-through.
 
 **Key memory files:**
 - `src/memory/index.ts` — `MemoryManager`, central facade
 - `src/memory/schemas.ts` — Zod schemas
 - `src/memory/knowledge-graph.ts` — entity/edge CRUD, BFS traversal
-- `src/memory/working-memory.ts` — per-loop scratchpad
+- `src/memory/working-memory.ts` — per-bloop scratchpad
 - `src/memory/hybrid-search.ts` — RRF across FTS5 + vector + graph
 - `src/memory/sqlite-vec-store.ts` — sqlite-vec backed vector store
 - `src/memory/embeddings.ts` — LocalEmbedder (TF-IDF), EmbeddingProvider interface
 
-## Results & Loop Access
+## Results & Bloop Access
 
 **Programmatic API:**
 ```typescript
-engine.getLoop(id)                              // Full loop record by UUID
-engine.getProjectLoops("my-project")            // All loops for project
-engine.getProjectLoops("my-project", "completed") // Filter by status
-engine.enqueueLoop({ projectSlug, goal })       // Queue a job
+engine.getBloop(id)                              // Full bloop record by UUID
+engine.getProjectBloops("my-project")            // All bloops for project
+engine.getProjectBloops("my-project", "completed") // Filter by status
+engine.enqueueBloop({ projectSlug, goal })       // Queue a job
 engine.getJobQueue().getStats()                 // Queue stats
 ```
 
 **CLI:**
 ```bash
-beercan history my-project              # List past loops
-beercan result <loop-id>                # Full result + tool calls
+beercan history my-project              # List past bloops
+beercan result <bloop-id>                # Full result + tool calls
 beercan status                          # All projects overview
 beercan jobs                            # Job queue status
 ```
@@ -167,7 +167,7 @@ npm run test:all            # Everything
 ```
 
 - **Unit tests** (`tests/`): database, memory, tools, web tools, job queue, gatekeeper, roles, decision extraction
-- **Integration tests** (`tests/integration.test.ts`): write utility, summarize CSV, web research, cross-loop memory
+- **Integration tests** (`tests/integration.test.ts`): write utility, summarize CSV, web research, cross-bloop memory
 
 ## Code Conventions
 
@@ -187,12 +187,12 @@ Requires `ANTHROPIC_API_KEY` in `.env`. Optional env vars:
 | `BEERCAN_DEFAULT_MODEL` | `claude-sonnet-4-6` | Default agent model |
 | `BEERCAN_HEAVY_MODEL` | `claude-opus-4-6` | Heavy model for complex roles |
 | `BEERCAN_GATEKEEPER_MODEL` | `claude-haiku-4-5-20251001` | Gatekeeper analysis model |
-| `BEERCAN_MAX_CONCURRENT` | `2` | Max simultaneous loop executions |
-| `BEERCAN_LOOP_TIMEOUT_MS` | `600000` (10 min) | Per-loop timeout |
-| `BEERCAN_MAX_ITERATIONS` | `50` | Max iterations per loop |
+| `BEERCAN_MAX_CONCURRENT` | `2` | Max simultaneous bloop executions |
+| `BEERCAN_BLOOP_TIMEOUT_MS` | `600000` (10 min) | Per-bloop timeout |
+| `BEERCAN_MAX_ITERATIONS` | `50` | Max iterations per bloop |
 | `BEERCAN_TOKEN_BUDGET` | `100000` | Default token budget |
 | `BEERCAN_LOG_LEVEL` | `info` | debug, info, warn, error |
-| `BEERCAN_LOG_FILE` | `~/.beercan/loops.log` | Structured log file path |
+| `BEERCAN_LOG_FILE` | `~/.beercan/beercan.log` | Structured log file path |
 | `BEERCAN_WEBHOOK_RATE_LIMIT` | `60` | Webhook requests/min/IP |
 | `BEERCAN_WEBHOOK_MAX_BODY_SIZE` | `1048576` (1MB) | Max webhook body size |
 | `CLOUDFLARE_API_TOKEN` | — | For Cloudflare Browser Rendering |

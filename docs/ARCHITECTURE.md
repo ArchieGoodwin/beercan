@@ -15,7 +15,7 @@ Autonomous agent orchestration system with sandboxed projects, multi-agent pipel
 │  └─────┬─────┘ └────┬─────┘ └─────┬──────┘ └───────┬────────┘  │
 │        │             │             │                 │           │
 │  ┌─────┴─────────────┴─────────────┴─────────────────┴─────────┐│
-│  │  LoopRunner          ToolRegistry (13 tools)                 ││
+│  │  BloopRunner          ToolRegistry (13 tools)                 ││
 │  │  pipeline exec       MemoryManager (4 layers)                ││
 │  └─────────────────────────┬───────────────────────────────────┘│
 │                             │                                    │
@@ -40,7 +40,7 @@ Autonomous agent orchestration system with sandboxed projects, multi-agent pipel
 | Tier | Description | Scope |
 |------|-------------|-------|
 | **Project** | Sandboxed context with its own tools, token budget, memory, and optional working directory | Persistent |
-| **Loop** | Atomic agent task with a goal, conversation, tool calls, and result | Per-execution |
+| **Bloop** | Atomic agent task with a goal, conversation, tool calls, and result | Per-execution |
 | **Team** | Pipeline of agent roles that process a Loop through phases — preset or dynamically composed by the Gatekeeper | Configuration |
 
 ### Agent Roles
@@ -95,10 +95,10 @@ The gatekeeper can also invent entirely new roles with custom system prompts for
 
 SQLite-backed job queue with concurrency semaphore. Scheduler and event triggers route through the queue.
 
-- Max concurrent loops: `BEERCAN_MAX_CONCURRENT` (default 2)
+- Max concurrent bloops: `BEERCAN_MAX_CONCURRENT` (default 2)
 - Priority ordering (higher first, FIFO within same priority)
 - Atomic claim via SQLite transaction
-- `engine.enqueueLoop()` for queued execution, `engine.runLoop()` for direct
+- `engine.enqueueBloop()` for queued execution, `engine.runBloop()` for direct
 - `drain()` on shutdown waits for all running + pending jobs
 
 ### Project Working Directory
@@ -123,11 +123,11 @@ BeerCanEngine.runLoop(projectSlug, goal, team)
   ├─ If team is "auto" or undefined:
   │    ├─ Gatekeeper.analyze(goal, project, memoryContext)
   │    │    └─ Single LLM call → GatekeeperPlan (Zod validated)
-  │    ├─ Convert plan → LoopTeam + AgentRole[]
+  │    ├─ Convert plan → BloopTeam + AgentRole[]
   │    ├─ Register dynamic roles on runner
   │    └─ Inject plan summary into extraContext
   │
-  └─ LoopRunner.run(project, goal, team)
+  └─ BloopRunner.run(project, goal, team)
        │
        ├─ Create Loop record in DB (status: running)
        ├─ Set currentLoopContext (for memory tools)
@@ -194,7 +194,7 @@ Four layers in a single SQLite database (`~/.beercan/orchestrator.db`):
 │   ├── kg_entities          # Knowledge graph nodes
 │   ├── kg_edges             # Knowledge graph edges
 │   ├── kg_entity_memories   # Entity ↔ memory links
-│   ├── working_memory       # Per-loop scratchpad
+│   ├── working_memory       # Per-bloop scratchpad
 │   ├── memory_vectors       # sqlite-vec embeddings (virtual)
 │   └── _migrations          # Migration tracking
 ├── loops.log                # Structured JSON log
@@ -223,7 +223,7 @@ Four layers in a single SQLite database (`~/.beercan/orchestrator.db`):
 | `memory_update` | Memory | Supersede existing memory |
 | `memory_link` | Memory | Create knowledge graph entities + edges |
 | `memory_query_graph` | Memory | Traverse knowledge graph (BFS) |
-| `memory_scratch` | Memory | Per-loop working memory scratchpad |
+| `memory_scratch` | Memory | Per-bloop working memory scratchpad |
 
 **MCP Tools:** External tools via Model Context Protocol. Per-project `mcp.json` config. Namespaced as `mcp_<server>__<tool>`.
 
@@ -253,9 +253,9 @@ Sources ──→ EventBus ──→ TriggerManager ──→ JobQueue.enqueue()
 | `BEERCAN_DEFAULT_MODEL` | `claude-sonnet-4-6` | Default agent model |
 | `BEERCAN_HEAVY_MODEL` | `claude-opus-4-6` | Heavy model for complex roles |
 | `BEERCAN_GATEKEEPER_MODEL` | `claude-haiku-4-5-20251001` | Gatekeeper model |
-| `BEERCAN_MAX_CONCURRENT` | `2` | Max simultaneous loops |
-| `BEERCAN_LOOP_TIMEOUT_MS` | `600000` | Per-loop timeout (10 min) |
-| `BEERCAN_MAX_ITERATIONS` | `50` | Max iterations per loop |
+| `BEERCAN_MAX_CONCURRENT` | `2` | Max simultaneous bloops |
+| `BEERCAN_BLOOP_TIMEOUT_MS` | `600000` | Per-bloop timeout (10 min) |
+| `BEERCAN_MAX_ITERATIONS` | `50` | Max iterations per bloop |
 | `BEERCAN_TOKEN_BUDGET` | `100000` | Default token budget |
 | `BEERCAN_LOG_LEVEL` | `info` | debug, info, warn, error |
 | `BEERCAN_LOG_FILE` | `~/.beercan/loops.log` | Structured log file |
@@ -274,13 +274,13 @@ Proxy support: auto-detects `HTTP_PROXY`/`HTTPS_PROXY`.
 
 ```typescript
 // Execute
-engine.runLoop({ projectSlug, goal, team })     // Direct execution
-engine.enqueueLoop({ projectSlug, goal })        // Via job queue
+engine.runBloop({ projectSlug, goal, team })     // Direct execution
+engine.enqueueBloop({ projectSlug, goal })        // Via job queue
 
 // Query
-engine.getLoop(id)                               // Full loop record
-engine.getProjectLoops("my-project")             // All loops
-engine.getProjectLoops("my-project", "completed")// Filter by status
+engine.getBloop(id)                               // Full bloop record
+engine.getProjectBloops("my-project")             // All bloops
+engine.getProjectBloops("my-project", "completed")// Filter by status
 engine.getJobQueue().getStats()                  // Queue stats
 ```
 
@@ -288,7 +288,7 @@ engine.getJobQueue().getStats()                  // Queue stats
 
 ```bash
 beercan status                          # All projects overview
-beercan history my-project              # List past loops
+beercan history my-project              # List past bloops
 beercan result <loop-id>                # Full result + tool calls
 beercan jobs                            # Job queue status
 ```

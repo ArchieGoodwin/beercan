@@ -25,7 +25,7 @@ beercan run my-project full_team "Refactor auth system"
 
 # View results
 beercan history my-project
-beercan result <loop-id>
+beercan result <bloop-id>
 beercan status
 beercan jobs
 ```

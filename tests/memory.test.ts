@@ -7,7 +7,7 @@ import { KnowledgeGraph } from "../src/memory/knowledge-graph.js";
 import { WorkingMemory } from "../src/memory/working-memory.js";
 import { LocalEmbedder } from "../src/memory/embeddings.js";
 import { SqliteVecStore } from "../src/memory/sqlite-vec-store.js";
-import type { Project, Loop } from "../src/schemas.js";
+import type { Project, Bloop } from "../src/schemas.js";
 
 function tmpDb(): string {
   return `/tmp/loops-mem-test-${Date.now()}-${Math.random().toString(36).slice(2)}.db`;
@@ -18,7 +18,7 @@ function makeProject(db: BeerCanDB): Project {
   const project: Project = {
     id: uuid(), name: "Test", slug: "test-mem",
     context: {}, allowedTools: ["*"],
-    tokenBudget: { dailyLimit: 100000, perLoopLimit: 20000 },
+    tokenBudget: { dailyLimit: 100000, perBloopLimit: 20000 },
     createdAt: now, updatedAt: now,
   };
   db.createProject(project);
@@ -178,7 +178,7 @@ describe("KnowledgeGraph", () => {
     db.createMemoryEntry({
       id: memId, projectId: project.id, memoryType: "fact",
       title: "Auth fact", content: "JWT tokens",
-      sourceLoopId: null, supersededBy: null, confidence: 1.0, tags: [],
+      sourceBloopId: null, supersededBy: null, confidence: 1.0, tags: [],
       createdAt: now, updatedAt: now,
     });
 
@@ -193,7 +193,7 @@ describe("WorkingMemory", () => {
   let dbPath: string;
   let db: BeerCanDB;
   let wm: WorkingMemory;
-  let loopId: string;
+  let bloopId: string;
 
   beforeEach(() => {
     dbPath = tmpDb();
@@ -202,9 +202,9 @@ describe("WorkingMemory", () => {
 
     const project = makeProject(db);
     const now = new Date().toISOString();
-    loopId = uuid();
-    db.createLoop({
-      id: loopId, projectId: project.id, parentLoopId: null,
+    bloopId = uuid();
+    db.createBloop({
+      id: bloopId, projectId: project.id, parentBloopId: null,
       trigger: "manual", status: "running", goal: "test",
       messages: [], result: null, toolCalls: [],
       tokensUsed: 0, iterations: 0, maxIterations: 50,
@@ -218,27 +218,27 @@ describe("WorkingMemory", () => {
   });
 
   it("scope lifecycle: create, read/write, cleanup", () => {
-    wm.createScope(loopId);
+    wm.createScope(bloopId);
 
-    wm.set(loopId, "plan", "Step 1: Read files");
-    wm.set(loopId, "status", "in-progress");
+    wm.set(bloopId, "plan", "Step 1: Read files");
+    wm.set(bloopId, "status", "in-progress");
 
-    expect(wm.get(loopId, "plan")).toBe("Step 1: Read files");
-    expect(wm.get(loopId, "missing")).toBeUndefined();
+    expect(wm.get(bloopId, "plan")).toBe("Step 1: Read files");
+    expect(wm.get(bloopId, "missing")).toBeUndefined();
 
-    const items = wm.list(loopId);
+    const items = wm.list(bloopId);
     expect(items).toHaveLength(2);
 
-    wm.cleanup(loopId);
+    wm.cleanup(bloopId);
 
     // After cleanup, data is gone
-    expect(wm.get(loopId, "plan")).toBeUndefined();
-    expect(wm.list(loopId)).toHaveLength(0);
+    expect(wm.get(bloopId, "plan")).toBeUndefined();
+    expect(wm.list(bloopId)).toHaveLength(0);
   });
 
   it("works without createScope (lazy init)", () => {
-    wm.set(loopId, "key", "value");
-    expect(wm.get(loopId, "key")).toBe("value");
+    wm.set(bloopId, "key", "value");
+    expect(wm.get(bloopId, "key")).toBe("value");
   });
 });
 
@@ -309,18 +309,18 @@ describe("MemoryManager", () => {
     expect(active[0].id).toBe(updated!.id);
   });
 
-  it("stores loop results", async () => {
+  it("stores bloop results", async () => {
     const now = new Date().toISOString();
-    const loop: Loop = {
-      id: uuid(), projectId: project.id, parentLoopId: null,
+    const bloop: Bloop = {
+      id: uuid(), projectId: project.id, parentBloopId: null,
       trigger: "manual", status: "completed", goal: "Add user auth",
       messages: [], result: "Implemented JWT-based authentication with refresh tokens",
       toolCalls: [], tokensUsed: 5000, iterations: 8, maxIterations: 50,
       createdAt: now, updatedAt: now, completedAt: now,
     };
-    db.createLoop(loop);
+    db.createBloop(bloop);
 
-    await mm.storeLoopResult(loop, "test-mem");
+    await mm.storeBloopResult(bloop, "test-mem");
 
     // Should be searchable
     const entries = db.listMemoryEntries(project.id, "loop_result");

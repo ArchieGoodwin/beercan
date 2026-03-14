@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "fs";
 import { BeerCanDB } from "../src/storage/database.js";
-import type { Project, Loop } from "../src/schemas.js";
+import type { Project, Bloop } from "../src/schemas.js";
 import { v4 as uuid } from "uuid";
 
 function tmpDb(): string {
@@ -16,19 +16,19 @@ function makeProject(overrides?: Partial<Project>): Project {
     slug: "test-project",
     context: {},
     allowedTools: ["*"],
-    tokenBudget: { dailyLimit: 100000, perLoopLimit: 20000 },
+    tokenBudget: { dailyLimit: 100000, perBloopLimit: 20000 },
     createdAt: now,
     updatedAt: now,
     ...overrides,
   };
 }
 
-function makeLoop(projectId: string, overrides?: Partial<Loop>): Loop {
+function makeBloop(projectId: string, overrides?: Partial<Bloop>): Bloop {
   const now = new Date().toISOString();
   return {
     id: uuid(),
     projectId,
-    parentLoopId: null,
+    parentBloopId: null,
     trigger: "manual",
     status: "created",
     goal: "Test goal",
@@ -142,7 +142,7 @@ describe("BeerCanDB", () => {
     });
   });
 
-  describe("loops", () => {
+  describe("bloops", () => {
     let project: Project;
 
     beforeEach(() => {
@@ -150,45 +150,45 @@ describe("BeerCanDB", () => {
       db.createProject(project);
     });
 
-    it("creates and retrieves a loop", () => {
-      const loop = makeLoop(project.id, { goal: "Write a test" });
-      db.createLoop(loop);
+    it("creates and retrieves a bloop", () => {
+      const bloop = makeBloop(project.id, { goal: "Write a test" });
+      db.createBloop(bloop);
 
-      const found = db.getLoop(loop.id);
+      const found = db.getBloop(bloop.id);
       expect(found).not.toBeNull();
       expect(found!.goal).toBe("Write a test");
       expect(found!.status).toBe("created");
     });
 
-    it("updates loop status and result", () => {
-      const loop = makeLoop(project.id);
-      db.createLoop(loop);
+    it("updates bloop status and result", () => {
+      const bloop = makeBloop(project.id);
+      db.createBloop(bloop);
 
-      loop.status = "completed";
-      loop.result = { summary: "done" };
-      loop.completedAt = new Date().toISOString();
-      loop.updatedAt = new Date().toISOString();
-      db.updateLoop(loop);
+      bloop.status = "completed";
+      bloop.result = { summary: "done" };
+      bloop.completedAt = new Date().toISOString();
+      bloop.updatedAt = new Date().toISOString();
+      db.updateBloop(bloop);
 
-      const found = db.getLoop(loop.id);
+      const found = db.getBloop(bloop.id);
       expect(found!.status).toBe("completed");
       expect(found!.result).toEqual({ summary: "done" });
       expect(found!.completedAt).not.toBeNull();
     });
 
-    it("lists loops by project", () => {
-      db.createLoop(makeLoop(project.id, { goal: "goal 1" }));
-      db.createLoop(makeLoop(project.id, { goal: "goal 2" }));
+    it("lists bloops by project", () => {
+      db.createBloop(makeBloop(project.id, { goal: "goal 1" }));
+      db.createBloop(makeBloop(project.id, { goal: "goal 2" }));
 
-      const loops = db.getProjectLoops(project.id);
-      expect(loops).toHaveLength(2);
+      const bloops = db.getProjectBloops(project.id);
+      expect(bloops).toHaveLength(2);
     });
 
-    it("filters loops by status", () => {
-      db.createLoop(makeLoop(project.id, { status: "completed" }));
-      db.createLoop(makeLoop(project.id, { status: "failed" }));
+    it("filters bloops by status", () => {
+      db.createBloop(makeBloop(project.id, { status: "completed" }));
+      db.createBloop(makeBloop(project.id, { status: "failed" }));
 
-      const completed = db.getProjectLoops(project.id, "completed");
+      const completed = db.getProjectBloops(project.id, "completed");
       expect(completed).toHaveLength(1);
       expect(completed[0].status).toBe("completed");
     });
@@ -210,7 +210,7 @@ describe("BeerCanDB", () => {
         memoryType: "fact" as const,
         title: "Test fact",
         content: "The sky is blue",
-        sourceLoopId: null,
+        sourceBloopId: null,
         supersededBy: null,
         confidence: 0.9,
         tags: ["test", "color"],
@@ -230,7 +230,7 @@ describe("BeerCanDB", () => {
       const now = new Date().toISOString();
       const old = {
         id: uuid(), projectId: project.id, memoryType: "fact" as const,
-        title: "Old fact", content: "v1", sourceLoopId: null,
+        title: "Old fact", content: "v1", sourceBloopId: null,
         supersededBy: null, confidence: 1.0, tags: [],
         createdAt: now, updatedAt: now,
       };
@@ -238,7 +238,7 @@ describe("BeerCanDB", () => {
 
       const newEntry = {
         id: uuid(), projectId: project.id, memoryType: "fact" as const,
-        title: "Updated fact", content: "v2", sourceLoopId: null,
+        title: "Updated fact", content: "v2", sourceBloopId: null,
         supersededBy: null, confidence: 1.0, tags: [],
         createdAt: now, updatedAt: now,
       };
@@ -255,7 +255,7 @@ describe("BeerCanDB", () => {
 
     it("searches with FTS5", () => {
       const now = new Date().toISOString();
-      const base = { projectId: project.id, memoryType: "fact" as const, sourceLoopId: null, supersededBy: null, confidence: 1.0, tags: [], createdAt: now, updatedAt: now };
+      const base = { projectId: project.id, memoryType: "fact" as const, sourceBloopId: null, supersededBy: null, confidence: 1.0, tags: [], createdAt: now, updatedAt: now };
 
       db.createMemoryEntry({ ...base, id: uuid(), title: "JavaScript patterns", content: "Use async/await for async code" });
       db.createMemoryEntry({ ...base, id: uuid(), title: "Python tips", content: "Use list comprehensions" });
@@ -327,8 +327,8 @@ describe("BeerCanDB", () => {
 
     it("creates entities and edges", () => {
       const now = new Date().toISOString();
-      const e1 = { id: uuid(), projectId: project.id, name: "auth", entityType: "concept" as const, description: "Authentication system", properties: {}, sourceLoopId: null, sourceMemoryId: null, createdAt: now, updatedAt: now };
-      const e2 = { id: uuid(), projectId: project.id, name: "config.ts", entityType: "file" as const, description: null, properties: {}, sourceLoopId: null, sourceMemoryId: null, createdAt: now, updatedAt: now };
+      const e1 = { id: uuid(), projectId: project.id, name: "auth", entityType: "concept" as const, description: "Authentication system", properties: {}, sourceBloopId: null, sourceMemoryId: null, createdAt: now, updatedAt: now };
+      const e2 = { id: uuid(), projectId: project.id, name: "config.ts", entityType: "file" as const, description: null, properties: {}, sourceBloopId: null, sourceMemoryId: null, createdAt: now, updatedAt: now };
 
       db.createKGEntity(e1);
       db.createKGEntity(e2);
@@ -337,7 +337,7 @@ describe("BeerCanDB", () => {
       expect(found).not.toBeNull();
       expect(found!.entityType).toBe("concept");
 
-      const edge = { id: uuid(), projectId: project.id, sourceId: e1.id, targetId: e2.id, edgeType: "depends_on" as const, weight: 1.0, properties: {}, sourceLoopId: null, createdAt: now };
+      const edge = { id: uuid(), projectId: project.id, sourceId: e1.id, targetId: e2.id, edgeType: "depends_on" as const, weight: 1.0, properties: {}, sourceBloopId: null, createdAt: now };
       db.createKGEdge(edge);
 
       const edgesFrom = db.getKGEdgesFrom(e1.id);
@@ -350,7 +350,7 @@ describe("BeerCanDB", () => {
 
     it("searches entities by name", () => {
       const now = new Date().toISOString();
-      const base = { projectId: project.id, entityType: "concept" as const, description: null, properties: {}, sourceLoopId: null, sourceMemoryId: null, createdAt: now, updatedAt: now };
+      const base = { projectId: project.id, entityType: "concept" as const, description: null, properties: {}, sourceBloopId: null, sourceMemoryId: null, createdAt: now, updatedAt: now };
       db.createKGEntity({ ...base, id: uuid(), name: "authentication" });
       db.createKGEntity({ ...base, id: uuid(), name: "authorization" });
       db.createKGEntity({ ...base, id: uuid(), name: "database" });
@@ -361,11 +361,11 @@ describe("BeerCanDB", () => {
 
     it("links entities to memories", () => {
       const now = new Date().toISOString();
-      const entity = { id: uuid(), projectId: project.id, name: "test", entityType: "concept" as const, description: null, properties: {}, sourceLoopId: null, sourceMemoryId: null, createdAt: now, updatedAt: now };
+      const entity = { id: uuid(), projectId: project.id, name: "test", entityType: "concept" as const, description: null, properties: {}, sourceBloopId: null, sourceMemoryId: null, createdAt: now, updatedAt: now };
       db.createKGEntity(entity);
 
       const memId = uuid();
-      db.createMemoryEntry({ id: memId, projectId: project.id, memoryType: "fact", title: "Test", content: "Test content", sourceLoopId: null, supersededBy: null, confidence: 1.0, tags: [], createdAt: now, updatedAt: now });
+      db.createMemoryEntry({ id: memId, projectId: project.id, memoryType: "fact", title: "Test", content: "Test content", sourceBloopId: null, supersededBy: null, confidence: 1.0, tags: [], createdAt: now, updatedAt: now });
 
       db.createKGEntityMemoryLink(entity.id, memId);
 
@@ -380,49 +380,49 @@ describe("BeerCanDB", () => {
 
   describe("working memory", () => {
     let project: Project;
-    let loopId: string;
+    let bloopId: string;
 
     beforeEach(() => {
       project = makeProject();
       db.createProject(project);
-      const loop = makeLoop(project.id);
-      db.createLoop(loop);
-      loopId = loop.id;
+      const bloop = makeBloop(project.id);
+      db.createBloop(bloop);
+      bloopId = bloop.id;
     });
 
     it("sets and gets values", () => {
-      db.setWorkingMemory(loopId, "key1", "value1");
-      expect(db.getWorkingMemory(loopId, "key1")).toBe("value1");
+      db.setWorkingMemory(bloopId, "key1", "value1");
+      expect(db.getWorkingMemory(bloopId, "key1")).toBe("value1");
     });
 
     it("returns undefined for missing keys", () => {
-      expect(db.getWorkingMemory(loopId, "missing")).toBeUndefined();
+      expect(db.getWorkingMemory(bloopId, "missing")).toBeUndefined();
     });
 
     it("upserts on conflict", () => {
-      db.setWorkingMemory(loopId, "key", "v1");
-      db.setWorkingMemory(loopId, "key", "v2");
-      expect(db.getWorkingMemory(loopId, "key")).toBe("v2");
+      db.setWorkingMemory(bloopId, "key", "v1");
+      db.setWorkingMemory(bloopId, "key", "v2");
+      expect(db.getWorkingMemory(bloopId, "key")).toBe("v2");
     });
 
     it("lists all entries", () => {
-      db.setWorkingMemory(loopId, "a", "1");
-      db.setWorkingMemory(loopId, "b", "2");
-      const items = db.listWorkingMemory(loopId);
+      db.setWorkingMemory(bloopId, "a", "1");
+      db.setWorkingMemory(bloopId, "b", "2");
+      const items = db.listWorkingMemory(bloopId);
       expect(items).toHaveLength(2);
       expect(items[0].key).toBe("a");
     });
 
     it("deletes and clears", () => {
-      db.setWorkingMemory(loopId, "a", "1");
-      db.setWorkingMemory(loopId, "b", "2");
+      db.setWorkingMemory(bloopId, "a", "1");
+      db.setWorkingMemory(bloopId, "b", "2");
 
-      db.deleteWorkingMemory(loopId, "a");
-      expect(db.getWorkingMemory(loopId, "a")).toBeUndefined();
-      expect(db.listWorkingMemory(loopId)).toHaveLength(1);
+      db.deleteWorkingMemory(bloopId, "a");
+      expect(db.getWorkingMemory(bloopId, "a")).toBeUndefined();
+      expect(db.listWorkingMemory(bloopId)).toHaveLength(1);
 
-      db.clearWorkingMemory(loopId);
-      expect(db.listWorkingMemory(loopId)).toHaveLength(0);
+      db.clearWorkingMemory(bloopId);
+      expect(db.listWorkingMemory(bloopId)).toHaveLength(0);
     });
   });
 });

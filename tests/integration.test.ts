@@ -1,5 +1,5 @@
 /**
- * Integration tests that run real agent loops via the Claude API.
+ * Integration tests that run real agent bloops via the Claude API.
  *
  * These tests require ANTHROPIC_API_KEY in .env and cost real tokens.
  * Run with: npm run test:integration
@@ -15,15 +15,15 @@ import fs from "fs";
 import path from "path";
 import os from "os";
 import { BeerCanEngine } from "../src/index.js";
-import type { LoopEvent } from "../src/index.js";
+import type { BloopEvent } from "../src/index.js";
 
 // ── Test Setup ──────────────────────────────────────────────
 
 const TEST_DATA_DIR = path.join(os.tmpdir(), `loops-integ-${Date.now()}`);
 let engine: BeerCanEngine;
-const events: LoopEvent[] = [];
+const events: BloopEvent[] = [];
 
-function collectEvent(event: LoopEvent) {
+function collectEvent(event: BloopEvent) {
   events.push(event);
   // Minimal logging for CI
   if (event.type === "phase_start") {
@@ -63,17 +63,17 @@ describe("Task: Write a utility", () => {
     const workDir = path.join(TEST_DATA_DIR, "projects", "integ-test", "code");
     fs.mkdirSync(workDir, { recursive: true });
 
-    const loop = await engine.runLoop({
+    const bloop = await engine.runBloop({
       projectSlug: "integ-test",
       goal: `Write a small TypeScript utility file at ${workDir}/slug.ts that exports a function slugify(input: string): string which converts any string into a URL-friendly slug (lowercase, replace spaces and special chars with hyphens, trim leading/trailing hyphens, collapse multiple hyphens). Include 3-4 test cases as console.log assertions at the bottom of the file. After writing, run the file with "npx tsx ${workDir}/slug.ts" to verify it works.`,
       team: "auto",
       onEvent: collectEvent,
     });
 
-    console.log(`\n  Loop status: ${loop.status}, tokens: ${loop.tokensUsed}, iterations: ${loop.iterations}`);
+    console.log(`\n  Bloop status: ${bloop.status}, tokens: ${bloop.tokensUsed}, iterations: ${bloop.iterations}`);
 
-    // Verify loop completed
-    expect(loop.status).toBe("completed");
+    // Verify bloop completed
+    expect(bloop.status).toBe("completed");
 
     // Verify the file was created
     expect(fs.existsSync(path.join(workDir, "slug.ts"))).toBe(true);
@@ -84,8 +84,8 @@ describe("Task: Write a utility", () => {
     expect(content).toContain("export");
 
     // Verify the agent used tools
-    expect(loop.toolCalls.length).toBeGreaterThan(0);
-    const toolNames = loop.toolCalls.map((t) => t.toolName);
+    expect(bloop.toolCalls.length).toBeGreaterThan(0);
+    const toolNames = bloop.toolCalls.map((t) => t.toolName);
     expect(toolNames).toContain("write_file");
 
     // Verify gatekeeper ran (default team is "auto")
@@ -123,16 +123,16 @@ Mar,South,Widget B,26000,88
 
     const summaryPath = path.join(csvDir, "summary.md");
 
-    const loop = await engine.runLoop({
+    const bloop = await engine.runBloop({
       projectSlug: "integ-test",
       goal: `Read the CSV file at ${csvPath}. Analyze the sales data and write a summary report to ${summaryPath}. The summary should include: total revenue, best performing region, best performing product, month-over-month growth trend, and 2-3 key insights. Format as markdown.`,
       team: "auto",
       onEvent: collectEvent,
     });
 
-    console.log(`\n  Loop status: ${loop.status}, tokens: ${loop.tokensUsed}, iterations: ${loop.iterations}`);
+    console.log(`\n  Bloop status: ${bloop.status}, tokens: ${bloop.tokensUsed}, iterations: ${bloop.iterations}`);
 
-    expect(loop.status).toBe("completed");
+    expect(bloop.status).toBe("completed");
 
     // Verify summary was written
     expect(fs.existsSync(summaryPath)).toBe(true);
@@ -148,7 +148,7 @@ Mar,South,Widget B,26000,88
     expect(hasDataContent).toBe(true);
 
     // Verify agent read the CSV
-    const readCalls = loop.toolCalls.filter((t) => t.toolName === "read_file");
+    const readCalls = bloop.toolCalls.filter((t) => t.toolName === "read_file");
     expect(readCalls.length).toBeGreaterThan(0);
   }, 180_000);
 });
@@ -161,16 +161,16 @@ describe("Task: Web research and summarize", () => {
 
     const outputPath = path.join(TEST_DATA_DIR, "projects", "integ-test", "research.md");
 
-    const loop = await engine.runLoop({
+    const bloop = await engine.runBloop({
       projectSlug: "integ-test",
       goal: `Research the topic "SQLite WAL mode" by using exec_command to run curl commands against publicly available documentation. Try fetching https://www.sqlite.org/wal.html (use "curl -sL" to follow redirects). Read the output and write a concise summary (10-15 lines) to ${outputPath} covering: what WAL mode is, how it works, its advantages, and when to use it.`,
       team: "auto",
       onEvent: collectEvent,
     });
 
-    console.log(`\n  Loop status: ${loop.status}, tokens: ${loop.tokensUsed}, iterations: ${loop.iterations}`);
+    console.log(`\n  Bloop status: ${bloop.status}, tokens: ${bloop.tokensUsed}, iterations: ${bloop.iterations}`);
 
-    expect(loop.status).toBe("completed");
+    expect(bloop.status).toBe("completed");
 
     // Verify research output was written
     expect(fs.existsSync(outputPath)).toBe(true);
@@ -185,48 +185,48 @@ describe("Task: Web research and summarize", () => {
     expect(hasWalContent).toBe(true);
 
     // Verify exec_command was used (for curl)
-    const execCalls = loop.toolCalls.filter((t) => t.toolName === "exec_command");
+    const execCalls = bloop.toolCalls.filter((t) => t.toolName === "exec_command");
     expect(execCalls.length).toBeGreaterThan(0);
   }, 180_000);
 });
 
-// ── Test 4: Memory persistence across loops ─────────────────
+// ── Test 4: Memory persistence across bloops ─────────────────
 
-describe("Task: Memory works across loops", () => {
-  it("stores memory in first loop and retrieves it in second loop", async () => {
+describe("Task: Memory works across bloops", () => {
+  it("stores memory in first bloop and retrieves it in second bloop", async () => {
     events.length = 0;
 
-    // First loop: store a fact using memory_store tool directly
+    // First bloop: store a fact using memory_store tool directly
     // Use a very specific, tool-focused instruction
-    const loop1 = await engine.runLoop({
+    const bloop1 = await engine.runBloop({
       projectSlug: "integ-test",
       goal: `You MUST call the memory_store tool with these exact parameters: title="Project database", content="This project uses SQLite with WAL mode and sqlite-vec for vector search", memory_type="fact". Do not skip this step. After the tool call completes, confirm the memory ID.`,
       team: "solo",
       onEvent: collectEvent,
     });
 
-    console.log(`\n  Loop 1 status: ${loop1.status}, tokens: ${loop1.tokensUsed}`);
-    expect(loop1.status).toBe("completed");
+    console.log(`\n  Bloop 1 status: ${bloop1.status}, tokens: ${bloop1.tokensUsed}`);
+    expect(bloop1.status).toBe("completed");
 
     // Check if memory_store was called OR if a memory was created (either way works)
-    const storeCalls = loop1.toolCalls.filter((t) => t.toolName === "memory_store");
+    const storeCalls = bloop1.toolCalls.filter((t) => t.toolName === "memory_store");
     const memoryWasStored = storeCalls.length > 0 || db_hasMemories();
     expect(memoryWasStored).toBe(true);
 
-    // If the agent stored memory via tool, the second loop should find it
+    // If the agent stored memory via tool, the second bloop should find it
     if (storeCalls.length > 0) {
-      // Second loop: search for the stored fact
-      const loop2 = await engine.runLoop({
+      // Second bloop: search for the stored fact
+      const bloop2 = await engine.runBloop({
         projectSlug: "integ-test",
         goal: `You MUST call the memory_search tool with query "database SQLite WAL". Report what you find.`,
         team: "solo",
         onEvent: collectEvent,
       });
 
-      console.log(`  Loop 2 status: ${loop2.status}, tokens: ${loop2.tokensUsed}`);
-      expect(loop2.status).toBe("completed");
+      console.log(`  Bloop 2 status: ${bloop2.status}, tokens: ${bloop2.tokensUsed}`);
+      expect(bloop2.status).toBe("completed");
 
-      const searchCalls = loop2.toolCalls.filter((t) => t.toolName === "memory_search");
+      const searchCalls = bloop2.toolCalls.filter((t) => t.toolName === "memory_search");
       expect(searchCalls.length).toBeGreaterThan(0);
     }
 
