@@ -1,0 +1,913 @@
+import Database, { type Database as DatabaseType } from "better-sqlite3";
+import * as sqliteVec from "sqlite-vec";
+import fs from "fs";
+import path from "path";
+import type { Bloop, Project } from "../schemas.js";
+import type { Schedule } from "../scheduler/scheduler.js";
+import type { Trigger } from "../events/trigger-manager.js";
+import type { MemoryEntry, MemoryType, KGEntity, KGEdge } from "../memory/schemas.js";
+import type { Job, JobStats } from "../core/job-queue.js";
+
+// ── Database Manager ─────────────────────────────────────────
+// Uses better-sqlite3 (native SQLite bindings) for performance,
+// FTS5 support, and extension loading (sqlite-vec).
+// Auto-persists to disk — no manual persist() calls needed.
+
+export class BeerCanDB {
+  private db: DatabaseType;
+
+  constructor(dbPath: string) {
+    const dir = path.dirname(dbPath);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+
+    this.db = new Database(dbPath);
+    sqliteVec.load(this.db);
+    this.db.pragma("journal_mode = WAL");
+    this.db.pragma("foreign_keys = ON");
+    this.migrate();
+  }
+
+  /** Returns the underlying better-sqlite3 Database instance */
+  getDb(): DatabaseType {
+    return this.db;
+  }
+
+  // ── Migrations ───────────────────────────────────────────
+
+  private migrate(): void {
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS _migrations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL UNIQUE,
+        applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+    `);
+
+    const applied = new Set<string>();
+    const rows = this.db.prepare("SELECT name FROM _migrations").all() as Array<{ name: string }>;
+    for (const row of rows) {
+      applied.add(row.name);
+    }
+
+    for (const [name, sql] of Object.entries(MIGRATIONS)) {
+      if (!applied.has(name)) {
+        this.db.exec(sql);
+        this.db.prepare("INSERT INTO _migrations (name) VALUES (?)").run(name);
+      }
+    }
+  }
+
+  // ── Projects ─────────────────────────────────────────────
+
+  createProject(project: Project): void {
+    this.db.prepare(
+      `INSERT INTO projects (id, name, slug, description, work_dir, context, allowed_tools, token_budget, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      project.id,
+      project.name,
+      project.slug,
+      project.description ?? null,
+      project.workDir ?? null,
+      JSON.stringify(project.context),
+      JSON.stringify(project.allowedTools),
+      JSON.stringify(project.tokenBudget),
+      project.createdAt,
+      project.updatedAt,
+    );
+  }
+
+  getProject(id: string): Project | null {
+    const row = this.db.prepare("SELECT * FROM projects WHERE id = ?").get(id) as any;
+    return row ? this.rowToProject(row) : null;
+  }
+
+  getProjectBySlug(slug: string): Project | null {
+    const row = this.db.prepare("SELECT * FROM projects WHERE slug = ?").get(slug) as any;
+    return row ? this.rowToProject(row) : null;
+  }
+
+  listProjects(): Project[] {
+    const rows = this.db.prepare("SELECT * FROM projects ORDER BY created_at DESC").all() as any[];
+    return rows.map((row) => this.rowToProject(row));
+  }
+
+  // ── Bloops ───────────────────────────────────────────────
+
+  createBloop(bloop: Bloop): void {
+    this.db.prepare(
+      `INSERT INTO loops (id, project_id, parent_loop_id, trigger, status, goal, system_prompt, messages, result, tool_calls, tokens_used, iterations, max_iterations, created_at, updated_at, completed_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      bloop.id,
+      bloop.projectId,
+      bloop.parentBloopId,
+      bloop.trigger,
+      bloop.status,
+      bloop.goal,
+      bloop.systemPrompt ?? null,
+      JSON.stringify(bloop.messages),
+      JSON.stringify(bloop.result),
+      JSON.stringify(bloop.toolCalls),
+      bloop.tokensUsed,
+      bloop.iterations,
+      bloop.maxIterations,
+      bloop.createdAt,
+      bloop.updatedAt,
+      bloop.completedAt,
+    );
+  }
+
+  updateBloop(bloop: Bloop): void {
+    this.db.prepare(
+      `UPDATE loops SET
+         status = ?, messages = ?, result = ?, tool_calls = ?,
+         tokens_used = ?, iterations = ?, updated_at = ?, completed_at = ?
+       WHERE id = ?`
+    ).run(
+      bloop.status,
+      JSON.stringify(bloop.messages),
+      JSON.stringify(bloop.result),
+      JSON.stringify(bloop.toolCalls),
+      bloop.tokensUsed,
+      bloop.iterations,
+      bloop.updatedAt,
+      bloop.completedAt,
+      bloop.id,
+    );
+  }
+
+  getBloop(id: string): Bloop | null {
+    const row = this.db.prepare("SELECT * FROM loops WHERE id = ?").get(id) as any;
+    return row ? this.rowToBloop(row) : null;
+  }
+
+  getProjectBloops(projectId: string, status?: string): Bloop[] {
+    let query = "SELECT * FROM loops WHERE project_id = ?";
+    const params: any[] = [projectId];
+    if (status) {
+      query += " AND status = ?";
+      params.push(status);
+    }
+    query += " ORDER BY created_at DESC";
+
+    const rows = this.db.prepare(query).all(...params) as any[];
+    return rows.map((row) => this.rowToBloop(row));
+  }
+
+  // ── Row Mappers ──────────────────────────────────────────
+
+  private rowToProject(row: any): Project {
+    return {
+      id: row.id,
+      name: row.name,
+      slug: row.slug,
+      description: row.description,
+      workDir: row.work_dir ?? undefined,
+      context: JSON.parse(row.context),
+      allowedTools: JSON.parse(row.allowed_tools),
+      tokenBudget: JSON.parse(row.token_budget),
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  }
+
+  private rowToBloop(row: any): Bloop {
+    return {
+      id: row.id,
+      projectId: row.project_id,
+      parentBloopId: row.parent_loop_id,
+      trigger: row.trigger,
+      status: row.status,
+      goal: row.goal,
+      systemPrompt: row.system_prompt,
+      messages: JSON.parse(row.messages),
+      result: JSON.parse(row.result),
+      toolCalls: JSON.parse(row.tool_calls),
+      tokensUsed: row.tokens_used,
+      iterations: row.iterations,
+      maxIterations: row.max_iterations,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      completedAt: row.completed_at,
+    };
+  }
+
+  // ── Schedules ──────────────────────────────────────────────
+
+  createSchedule(schedule: Schedule): void {
+    this.db.prepare(
+      `INSERT INTO schedules (id, project_id, project_slug, cron_expression, goal, team, description, enabled, last_run_at, next_run_at, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      schedule.id, schedule.projectId, schedule.projectSlug,
+      schedule.cronExpression, schedule.goal, schedule.team,
+      schedule.description ?? null, schedule.enabled ? 1 : 0,
+      schedule.lastRunAt, schedule.nextRunAt,
+      schedule.createdAt, schedule.updatedAt,
+    );
+  }
+
+  getSchedule(id: string): Schedule | null {
+    const row = this.db.prepare("SELECT * FROM schedules WHERE id = ?").get(id) as any;
+    return row ? this.rowToSchedule(row) : null;
+  }
+
+  listSchedules(projectSlug?: string): Schedule[] {
+    let query = "SELECT * FROM schedules";
+    const params: any[] = [];
+    if (projectSlug) {
+      query += " WHERE project_slug = ?";
+      params.push(projectSlug);
+    }
+    query += " ORDER BY created_at DESC";
+
+    const rows = this.db.prepare(query).all(...params) as any[];
+    return rows.map((row) => this.rowToSchedule(row));
+  }
+
+  deleteSchedule(id: string): void {
+    this.db.prepare("DELETE FROM schedules WHERE id = ?").run(id);
+  }
+
+  updateScheduleRun(id: string, lastRunAt: string): void {
+    this.db.prepare(
+      "UPDATE schedules SET last_run_at = ?, updated_at = ? WHERE id = ?"
+    ).run(lastRunAt, new Date().toISOString(), id);
+  }
+
+  // ── Triggers ──────────────────────────────────────────────
+
+  createTrigger(trigger: Trigger): void {
+    this.db.prepare(
+      `INSERT INTO triggers (id, project_id, project_slug, event_type, filter_pattern, filter_data, goal_template, team, enabled, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      trigger.id, trigger.projectId, trigger.projectSlug,
+      trigger.eventType, trigger.filterPattern,
+      JSON.stringify(trigger.filterData), trigger.goalTemplate,
+      trigger.team, trigger.enabled ? 1 : 0,
+      trigger.createdAt, trigger.updatedAt,
+    );
+  }
+
+  listTriggers(projectSlug?: string): Trigger[] {
+    let query = "SELECT * FROM triggers";
+    const params: any[] = [];
+    if (projectSlug) {
+      query += " WHERE project_slug = ?";
+      params.push(projectSlug);
+    }
+    query += " ORDER BY created_at DESC";
+
+    const rows = this.db.prepare(query).all(...params) as any[];
+    return rows.map((row) => this.rowToTrigger(row));
+  }
+
+  deleteTrigger(id: string): void {
+    this.db.prepare("DELETE FROM triggers WHERE id = ?").run(id);
+  }
+
+  // ── Events Log ────────────────────────────────────────────
+
+  logEvent(event: { id: string; projectId: string; eventType: string; eventData: Record<string, unknown>; triggerId: string; createdAt: string }): void {
+    this.db.prepare(
+      `INSERT INTO events_log (id, project_id, event_type, event_data, trigger_id, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    ).run(event.id, event.projectId, event.eventType, JSON.stringify(event.eventData), event.triggerId, event.createdAt);
+  }
+
+  // ── Row Mappers (new) ─────────────────────────────────────
+
+  private rowToSchedule(row: any): Schedule {
+    return {
+      id: row.id,
+      projectId: row.project_id,
+      projectSlug: row.project_slug,
+      cronExpression: row.cron_expression,
+      goal: row.goal,
+      team: row.team,
+      description: row.description,
+      enabled: !!row.enabled,
+      lastRunAt: row.last_run_at,
+      nextRunAt: row.next_run_at,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  }
+
+  private rowToTrigger(row: any): Trigger {
+    return {
+      id: row.id,
+      projectId: row.project_id,
+      projectSlug: row.project_slug,
+      eventType: row.event_type,
+      filterPattern: row.filter_pattern,
+      filterData: JSON.parse(row.filter_data || "{}"),
+      goalTemplate: row.goal_template,
+      team: row.team,
+      enabled: !!row.enabled,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  }
+
+  // ── Memory Entries ────────────────────────────────────────
+
+  createMemoryEntry(entry: MemoryEntry): void {
+    this.db.prepare(
+      `INSERT INTO memory_entries (id, project_id, memory_type, title, content, source_loop_id, superseded_by, confidence, tags, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      entry.id, entry.projectId, entry.memoryType,
+      entry.title, entry.content, entry.sourceBloopId,
+      entry.supersededBy, entry.confidence,
+      JSON.stringify(entry.tags),
+      entry.createdAt, entry.updatedAt,
+    );
+    // Mirror to FTS5
+    this.db.prepare(
+      `INSERT INTO memory_entries_fts (rowid, title, content, memory_type, tags)
+       SELECT rowid, title, content, memory_type, tags FROM memory_entries WHERE id = ?`
+    ).run(entry.id);
+  }
+
+  getMemoryEntry(id: string): MemoryEntry | null {
+    const row = this.db.prepare("SELECT * FROM memory_entries WHERE id = ?").get(id) as any;
+    return row ? this.rowToMemoryEntry(row) : null;
+  }
+
+  listMemoryEntries(projectId: string, type?: MemoryType): MemoryEntry[] {
+    let query = "SELECT * FROM memory_entries WHERE project_id = ? AND superseded_by IS NULL";
+    const params: any[] = [projectId];
+    if (type) {
+      query += " AND memory_type = ?";
+      params.push(type);
+    }
+    query += " ORDER BY created_at DESC";
+    const rows = this.db.prepare(query).all(...params) as any[];
+    return rows.map((row) => this.rowToMemoryEntry(row));
+  }
+
+  supersedeMemoryEntry(oldId: string, newEntry: MemoryEntry): void {
+    const txn = this.db.transaction(() => {
+      // Insert new entry first (so FK reference is valid)
+      this.createMemoryEntry(newEntry);
+
+      // Then mark old entry as superseded
+      this.db.prepare(
+        "UPDATE memory_entries SET superseded_by = ?, updated_at = ? WHERE id = ?"
+      ).run(newEntry.id, new Date().toISOString(), oldId);
+    });
+    txn();
+  }
+
+  searchMemoryFTS(projectId: string, query: string, limit = 10): MemoryEntry[] {
+    // FTS5 MATCH with built-in BM25 ranking
+    const rows = this.db.prepare(
+      `SELECT me.*, rank
+       FROM memory_entries_fts fts
+       JOIN memory_entries me ON me.rowid = fts.rowid
+       WHERE memory_entries_fts MATCH ?
+       AND me.project_id = ?
+       AND me.superseded_by IS NULL
+       ORDER BY rank
+       LIMIT ?`
+    ).all(query, projectId, limit) as any[];
+    return rows.map((row) => this.rowToMemoryEntry(row));
+  }
+
+  deleteMemoryEntry(id: string): void {
+    // Delete FTS mirror first
+    const row = this.db.prepare("SELECT rowid FROM memory_entries WHERE id = ?").get(id) as any;
+    if (row) {
+      this.db.prepare("DELETE FROM memory_entries_fts WHERE rowid = ?").run(row.rowid);
+    }
+    this.db.prepare("DELETE FROM memory_entries WHERE id = ?").run(id);
+  }
+
+  private rowToMemoryEntry(row: any): MemoryEntry {
+    return {
+      id: row.id,
+      projectId: row.project_id,
+      memoryType: row.memory_type,
+      title: row.title,
+      content: row.content,
+      sourceBloopId: row.source_loop_id,
+      supersededBy: row.superseded_by,
+      confidence: row.confidence,
+      tags: JSON.parse(row.tags || "[]"),
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  }
+
+  // ── Knowledge Graph ─────────────────────────────────────
+
+  createKGEntity(entity: KGEntity): void {
+    this.db.prepare(
+      `INSERT INTO kg_entities (id, project_id, name, entity_type, description, properties, source_loop_id, source_memory_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      entity.id, entity.projectId, entity.name, entity.entityType,
+      entity.description, JSON.stringify(entity.properties),
+      entity.sourceBloopId, entity.sourceMemoryId,
+      entity.createdAt, entity.updatedAt,
+    );
+  }
+
+  getKGEntity(id: string): KGEntity | null {
+    const row = this.db.prepare("SELECT * FROM kg_entities WHERE id = ?").get(id) as any;
+    return row ? this.rowToKGEntity(row) : null;
+  }
+
+  findKGEntityByName(projectId: string, name: string): KGEntity | null {
+    const row = this.db.prepare(
+      "SELECT * FROM kg_entities WHERE project_id = ? AND name = ?"
+    ).get(projectId, name) as any;
+    return row ? this.rowToKGEntity(row) : null;
+  }
+
+  listKGEntities(projectId: string, type?: string): KGEntity[] {
+    let query = "SELECT * FROM kg_entities WHERE project_id = ?";
+    const params: any[] = [projectId];
+    if (type) {
+      query += " AND entity_type = ?";
+      params.push(type);
+    }
+    query += " ORDER BY created_at DESC";
+    const rows = this.db.prepare(query).all(...params) as any[];
+    return rows.map((row) => this.rowToKGEntity(row));
+  }
+
+  searchKGEntities(projectId: string, query: string): KGEntity[] {
+    const pattern = `%${query}%`;
+    const rows = this.db.prepare(
+      `SELECT * FROM kg_entities WHERE project_id = ? AND (name LIKE ? OR description LIKE ?)
+       ORDER BY created_at DESC LIMIT 20`
+    ).all(projectId, pattern, pattern) as any[];
+    return rows.map((row) => this.rowToKGEntity(row));
+  }
+
+  updateKGEntity(id: string, updates: { description?: string; properties?: Record<string, unknown> }): void {
+    const entity = this.getKGEntity(id);
+    if (!entity) return;
+    this.db.prepare(
+      "UPDATE kg_entities SET description = ?, properties = ?, updated_at = ? WHERE id = ?"
+    ).run(
+      updates.description ?? entity.description,
+      JSON.stringify(updates.properties ?? entity.properties),
+      new Date().toISOString(),
+      id,
+    );
+  }
+
+  createKGEdge(edge: KGEdge): void {
+    this.db.prepare(
+      `INSERT INTO kg_edges (id, project_id, source_id, target_id, edge_type, weight, properties, source_loop_id, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      edge.id, edge.projectId, edge.sourceId, edge.targetId,
+      edge.edgeType, edge.weight, JSON.stringify(edge.properties),
+      edge.sourceBloopId, edge.createdAt,
+    );
+  }
+
+  getKGEdgesFrom(entityId: string): KGEdge[] {
+    const rows = this.db.prepare(
+      "SELECT * FROM kg_edges WHERE source_id = ?"
+    ).all(entityId) as any[];
+    return rows.map((row) => this.rowToKGEdge(row));
+  }
+
+  getKGEdgesTo(entityId: string): KGEdge[] {
+    const rows = this.db.prepare(
+      "SELECT * FROM kg_edges WHERE target_id = ?"
+    ).all(entityId) as any[];
+    return rows.map((row) => this.rowToKGEdge(row));
+  }
+
+  getKGEdgesBoth(entityId: string): KGEdge[] {
+    const rows = this.db.prepare(
+      "SELECT * FROM kg_edges WHERE source_id = ? OR target_id = ?"
+    ).all(entityId, entityId) as any[];
+    return rows.map((row) => this.rowToKGEdge(row));
+  }
+
+  createKGEntityMemoryLink(entityId: string, memoryId: string): void {
+    this.db.prepare(
+      "INSERT OR IGNORE INTO kg_entity_memories (entity_id, memory_id) VALUES (?, ?)"
+    ).run(entityId, memoryId);
+  }
+
+  getKGEntityMemoryIds(entityId: string): string[] {
+    const rows = this.db.prepare(
+      "SELECT memory_id FROM kg_entity_memories WHERE entity_id = ?"
+    ).all(entityId) as Array<{ memory_id: string }>;
+    return rows.map((r) => r.memory_id);
+  }
+
+  getKGMemoryEntityIds(memoryId: string): string[] {
+    const rows = this.db.prepare(
+      "SELECT entity_id FROM kg_entity_memories WHERE memory_id = ?"
+    ).all(memoryId) as Array<{ entity_id: string }>;
+    return rows.map((r) => r.entity_id);
+  }
+
+  private rowToKGEntity(row: any): KGEntity {
+    return {
+      id: row.id,
+      projectId: row.project_id,
+      name: row.name,
+      entityType: row.entity_type,
+      description: row.description,
+      properties: JSON.parse(row.properties || "{}"),
+      sourceBloopId: row.source_loop_id,
+      sourceMemoryId: row.source_memory_id,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  }
+
+  private rowToKGEdge(row: any): KGEdge {
+    return {
+      id: row.id,
+      projectId: row.project_id,
+      sourceId: row.source_id,
+      targetId: row.target_id,
+      edgeType: row.edge_type,
+      weight: row.weight,
+      properties: JSON.parse(row.properties || "{}"),
+      sourceBloopId: row.source_loop_id,
+      createdAt: row.created_at,
+    };
+  }
+
+  // ── Working Memory ──────────────────────────────────────
+
+  setWorkingMemory(bloopId: string, key: string, value: string): void {
+    this.db.prepare(
+      `INSERT INTO working_memory (loop_id, key, value, updated_at)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(loop_id, key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`
+    ).run(bloopId, key, value, new Date().toISOString());
+  }
+
+  getWorkingMemory(bloopId: string, key: string): string | undefined {
+    const row = this.db.prepare(
+      "SELECT value FROM working_memory WHERE loop_id = ? AND key = ?"
+    ).get(bloopId, key) as any;
+    return row?.value;
+  }
+
+  listWorkingMemory(bloopId: string): Array<{ key: string; value: string }> {
+    const rows = this.db.prepare(
+      "SELECT key, value FROM working_memory WHERE loop_id = ? ORDER BY key"
+    ).all(bloopId) as Array<{ key: string; value: string }>;
+    return rows;
+  }
+
+  deleteWorkingMemory(bloopId: string, key: string): void {
+    this.db.prepare(
+      "DELETE FROM working_memory WHERE loop_id = ? AND key = ?"
+    ).run(bloopId, key);
+  }
+
+  clearWorkingMemory(bloopId: string): void {
+    this.db.prepare("DELETE FROM working_memory WHERE loop_id = ?").run(bloopId);
+  }
+
+  // ── Memory Vectors (sqlite-vec) ────────────────────────
+
+  private toBuffer(f32: Float32Array): Buffer {
+    return Buffer.from(f32.buffer, f32.byteOffset, f32.byteLength);
+  }
+
+  storeVector(memoryId: string, embedding: Float32Array): void {
+    this.db.prepare(
+      "INSERT INTO memory_vectors (memory_id, embedding) VALUES (?, ?)"
+    ).run(memoryId, this.toBuffer(embedding));
+  }
+
+  updateVector(memoryId: string, embedding: Float32Array): void {
+    this.db.prepare(
+      "UPDATE memory_vectors SET embedding = ? WHERE memory_id = ?"
+    ).run(this.toBuffer(embedding), memoryId);
+  }
+
+  deleteVector(memoryId: string): void {
+    this.db.prepare("DELETE FROM memory_vectors WHERE memory_id = ?").run(memoryId);
+  }
+
+  queryVectors(embedding: Float32Array, topK = 10): Array<{ memoryId: string; distance: number }> {
+    const rows = this.db.prepare(
+      `SELECT memory_id, distance
+       FROM memory_vectors
+       WHERE embedding MATCH ?
+       AND k = ?
+       ORDER BY distance`
+    ).all(this.toBuffer(embedding), topK) as Array<{ memory_id: string; distance: number }>;
+    return rows.map((r) => ({ memoryId: r.memory_id, distance: r.distance }));
+  }
+
+  hasVectors(): boolean {
+    const row = this.db.prepare(
+      "SELECT COUNT(*) as cnt FROM memory_vectors"
+    ).get() as { cnt: number };
+    return row.cnt > 0;
+  }
+
+  // ── Job Queue ────────────────────────────────────────────
+
+  createJob(job: Job): void {
+    this.db.prepare(
+      `INSERT INTO job_queue (id, project_slug, goal, team, priority, status, source, source_id, extra_context, loop_id, error, created_at, started_at, completed_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      job.id, job.projectSlug, job.goal, job.team, job.priority,
+      job.status, job.source, job.sourceId, job.extraContext,
+      job.bloopId, job.error, job.createdAt, job.startedAt, job.completedAt,
+    );
+  }
+
+  /** Atomically claim the highest-priority pending job. */
+  claimNextJob(): Job | null {
+    const txn = this.db.transaction(() => {
+      const row = this.db.prepare(
+        `SELECT * FROM job_queue WHERE status = 'pending'
+         ORDER BY priority DESC, created_at ASC LIMIT 1`
+      ).get() as any;
+      if (!row) return null;
+
+      this.db.prepare(
+        "UPDATE job_queue SET status = 'running', started_at = ? WHERE id = ?"
+      ).run(new Date().toISOString(), row.id);
+
+      return this.rowToJob({ ...row, status: "running", started_at: new Date().toISOString() });
+    });
+    return txn() ?? null;
+  }
+
+  updateJob(id: string, updates: { status?: string; bloopId?: string; error?: string; completedAt?: string }): void {
+    const parts: string[] = [];
+    const params: any[] = [];
+    if (updates.status) { parts.push("status = ?"); params.push(updates.status); }
+    if (updates.bloopId && updates.bloopId.length > 0) { parts.push("loop_id = ?"); params.push(updates.bloopId); }
+    if (updates.error !== undefined) { parts.push("error = ?"); params.push(updates.error); }
+    if (updates.completedAt) { parts.push("completed_at = ?"); params.push(updates.completedAt); }
+    if (parts.length === 0) return;
+    params.push(id);
+    this.db.prepare(`UPDATE job_queue SET ${parts.join(", ")} WHERE id = ?`).run(...params);
+  }
+
+  getJobStats(): JobStats {
+    const row = this.db.prepare(`
+      SELECT
+        SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending,
+        SUM(CASE WHEN status = 'running' THEN 1 ELSE 0 END) as running,
+        SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed,
+        SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed
+      FROM job_queue
+    `).get() as any;
+    return {
+      pending: row.pending ?? 0,
+      running: row.running ?? 0,
+      completed: row.completed ?? 0,
+      failed: row.failed ?? 0,
+    };
+  }
+
+  listJobs(status?: string, limit = 20): Job[] {
+    let query = "SELECT * FROM job_queue";
+    const params: any[] = [];
+    if (status) {
+      query += " WHERE status = ?";
+      params.push(status);
+    }
+    query += " ORDER BY created_at DESC LIMIT ?";
+    params.push(limit);
+    const rows = this.db.prepare(query).all(...params) as any[];
+    return rows.map((r) => this.rowToJob(r));
+  }
+
+  private rowToJob(row: any): Job {
+    return {
+      id: row.id,
+      projectSlug: row.project_slug,
+      goal: row.goal,
+      team: row.team,
+      priority: row.priority,
+      status: row.status,
+      source: row.source,
+      sourceId: row.source_id,
+      extraContext: row.extra_context,
+      bloopId: row.loop_id,
+      error: row.error,
+      createdAt: row.created_at,
+      startedAt: row.started_at,
+      completedAt: row.completed_at,
+    };
+  }
+
+  close(): void {
+    this.db.close();
+  }
+}
+
+// ── Migrations ───────────────────────────────────────────────
+
+const MIGRATIONS: Record<string, string> = {
+  "001_initial": `
+    CREATE TABLE projects (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      slug TEXT NOT NULL UNIQUE,
+      description TEXT,
+      context TEXT NOT NULL DEFAULT '{}',
+      allowed_tools TEXT NOT NULL DEFAULT '["*"]',
+      token_budget TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE loops (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id),
+      parent_loop_id TEXT REFERENCES loops(id),
+      trigger TEXT NOT NULL DEFAULT 'manual',
+      status TEXT NOT NULL DEFAULT 'created',
+      goal TEXT NOT NULL,
+      system_prompt TEXT,
+      messages TEXT NOT NULL DEFAULT '[]',
+      result TEXT,
+      tool_calls TEXT NOT NULL DEFAULT '[]',
+      tokens_used INTEGER NOT NULL DEFAULT 0,
+      iterations INTEGER NOT NULL DEFAULT 0,
+      max_iterations INTEGER NOT NULL DEFAULT 50,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      completed_at TEXT
+    );
+
+    CREATE INDEX idx_loops_project ON loops(project_id);
+    CREATE INDEX idx_loops_status ON loops(status);
+    CREATE INDEX idx_loops_parent ON loops(parent_loop_id);
+  `,
+
+  "002_schedules": `
+    CREATE TABLE IF NOT EXISTS schedules (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id),
+      project_slug TEXT NOT NULL,
+      cron_expression TEXT NOT NULL,
+      goal TEXT NOT NULL,
+      team TEXT NOT NULL DEFAULT 'solo',
+      description TEXT,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      last_run_at TEXT,
+      next_run_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_schedules_project ON schedules(project_id);
+    CREATE INDEX IF NOT EXISTS idx_schedules_enabled ON schedules(enabled);
+  `,
+
+  "003_triggers": `
+    CREATE TABLE IF NOT EXISTS triggers (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id),
+      project_slug TEXT NOT NULL,
+      event_type TEXT NOT NULL,
+      filter_pattern TEXT NOT NULL DEFAULT '.*',
+      filter_data TEXT NOT NULL DEFAULT '{}',
+      goal_template TEXT NOT NULL,
+      team TEXT NOT NULL DEFAULT 'solo',
+      enabled INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_triggers_project ON triggers(project_id);
+    CREATE INDEX IF NOT EXISTS idx_triggers_enabled ON triggers(enabled);
+  `,
+
+  "004_events_log": `
+    CREATE TABLE IF NOT EXISTS events_log (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id),
+      event_type TEXT NOT NULL,
+      event_data TEXT NOT NULL DEFAULT '{}',
+      trigger_id TEXT REFERENCES triggers(id),
+      spawned_loop_id TEXT REFERENCES loops(id),
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_events_project ON events_log(project_id);
+    CREATE INDEX IF NOT EXISTS idx_events_type ON events_log(event_type);
+  `,
+
+  "005_memory_entries": `
+    CREATE TABLE IF NOT EXISTS memory_entries (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id),
+      memory_type TEXT NOT NULL DEFAULT 'note',
+      title TEXT NOT NULL,
+      content TEXT NOT NULL,
+      source_loop_id TEXT REFERENCES loops(id),
+      superseded_by TEXT REFERENCES memory_entries(id),
+      confidence REAL NOT NULL DEFAULT 1.0,
+      tags TEXT NOT NULL DEFAULT '[]',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_memory_project ON memory_entries(project_id);
+    CREATE INDEX IF NOT EXISTS idx_memory_type ON memory_entries(memory_type);
+    CREATE INDEX IF NOT EXISTS idx_memory_superseded ON memory_entries(superseded_by);
+
+    CREATE VIRTUAL TABLE IF NOT EXISTS memory_entries_fts USING fts5(
+      title, content, memory_type, tags,
+      content=memory_entries, content_rowid=rowid
+    );
+  `,
+
+  "006_knowledge_graph": `
+    CREATE TABLE IF NOT EXISTS kg_entities (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id),
+      name TEXT NOT NULL,
+      entity_type TEXT NOT NULL DEFAULT 'concept',
+      description TEXT,
+      properties TEXT NOT NULL DEFAULT '{}',
+      source_loop_id TEXT REFERENCES loops(id),
+      source_memory_id TEXT REFERENCES memory_entries(id),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_kg_entity_name_project ON kg_entities(name, project_id);
+    CREATE INDEX IF NOT EXISTS idx_kg_entities_type ON kg_entities(entity_type);
+
+    CREATE TABLE IF NOT EXISTS kg_edges (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id),
+      source_id TEXT NOT NULL REFERENCES kg_entities(id),
+      target_id TEXT NOT NULL REFERENCES kg_entities(id),
+      edge_type TEXT NOT NULL DEFAULT 'relates_to',
+      weight REAL NOT NULL DEFAULT 1.0,
+      properties TEXT NOT NULL DEFAULT '{}',
+      source_loop_id TEXT REFERENCES loops(id),
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_kg_edges_source ON kg_edges(source_id);
+    CREATE INDEX IF NOT EXISTS idx_kg_edges_target ON kg_edges(target_id);
+
+    CREATE TABLE IF NOT EXISTS kg_entity_memories (
+      entity_id TEXT NOT NULL REFERENCES kg_entities(id),
+      memory_id TEXT NOT NULL REFERENCES memory_entries(id),
+      PRIMARY KEY (entity_id, memory_id)
+    );
+  `,
+
+  "007_working_memory": `
+    CREATE TABLE IF NOT EXISTS working_memory (
+      loop_id TEXT NOT NULL REFERENCES loops(id),
+      key TEXT NOT NULL,
+      value TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (loop_id, key)
+    );
+    CREATE INDEX IF NOT EXISTS idx_working_memory_loop ON working_memory(loop_id);
+  `,
+
+  "008_project_workdir": `
+    ALTER TABLE projects ADD COLUMN work_dir TEXT;
+  `,
+
+  "009_memory_vectors": `
+    CREATE VIRTUAL TABLE IF NOT EXISTS memory_vectors USING vec0(
+      memory_id TEXT PRIMARY KEY,
+      embedding float[512]
+    );
+  `,
+
+  "010_job_queue": `
+    CREATE TABLE IF NOT EXISTS job_queue (
+      id TEXT PRIMARY KEY,
+      project_slug TEXT NOT NULL,
+      goal TEXT NOT NULL,
+      team TEXT NOT NULL DEFAULT 'auto',
+      priority INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'pending',
+      source TEXT NOT NULL DEFAULT 'manual',
+      source_id TEXT,
+      extra_context TEXT,
+      loop_id TEXT REFERENCES loops(id),
+      error TEXT,
+      created_at TEXT NOT NULL,
+      started_at TEXT,
+      completed_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_job_queue_status ON job_queue(status);
+    CREATE INDEX IF NOT EXISTS idx_job_queue_priority ON job_queue(priority DESC, created_at ASC);
+  `,
+};

@@ -1,0 +1,43 @@
+{
+  "name": "beercan",
+  "version": "0.1.0",
+  "description": "Autonomous agent system — smarter than you, and it knows it.",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "beercan": "dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.ts",
+    "beercan": "tsx src/cli.ts",
+    "test": "vitest run --exclude tests/integration.test.ts",
+    "test:watch": "vitest --exclude tests/integration.test.ts",
+    "test:integration": "vitest run tests/integration.test.ts",
+    "test:all": "vitest run"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
+    "@modelcontextprotocol/sdk": "^1.27.1",
+    "@types/node-cron": "^3.0.11",
+    "better-sqlite3": "^12.8.0",
+    "chalk": "^5.4.0",
+    "dotenv": "^16.4.0",
+    "https-proxy-agent": "^8.0.0",
+    "node-cron": "^4.2.1",
+    "node-fetch": "^3.3.2",
+    "sqlite-vec": "^0.1.7-alpha.2",
+    "undici": "^7.23.0",
+    "uuid": "^11.1.0",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^22.0.0",
+    "@types/uuid": "^10.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0",
+    "vitest": "^4.1.0"
+  }
+}

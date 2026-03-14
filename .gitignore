@@ -1,0 +1,45 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Environment & secrets
+.env
+.env.local
+.env.*.local
+
+# BeerCan runtime data
+.beercan/
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Claude Code local settings
+.claude/
+
+# Test coverage
+coverage/
+
+# Logs
+*.log
+
+# SQLite databases (runtime)
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# npm debug
+npm-debug.log*
+
+# TypeScript incremental
+*.tsbuildinfo
