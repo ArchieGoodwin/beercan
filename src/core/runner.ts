@@ -440,18 +440,22 @@ export class BloopRunner {
     }
     parts.push(`\n--- System Info ---\n${sysLines.join("\n")}`);
 
-    // Tell the agent what tools it has — especially web access
+    // Tell the agent what tools it has — override Claude's training about web access
     if (availableToolNames && availableToolNames.length > 0) {
       const toolList = availableToolNames.join(", ");
       const capabilities: string[] = [];
-      if (availableToolNames.some((t) => t === "web_fetch" || t === "*")) {
-        capabilities.push("You CAN fetch web pages and URLs using the web_fetch tool. Use it to search for information, read web pages, and access online content.");
-      }
-      if (availableToolNames.some((t) => t === "http_request" || t === "*")) {
-        capabilities.push("You CAN make HTTP requests (GET, POST, etc.) using the http_request tool for APIs and web services.");
+      const hasWeb = availableToolNames.some((t) => t === "web_fetch" || t === "*");
+      const hasHttp = availableToolNames.some((t) => t === "http_request" || t === "*");
+      if (hasWeb || hasHttp) {
+        capabilities.push(
+          "IMPORTANT — INTERNET ACCESS: You HAVE real-time internet access. This is NOT a limitation.",
+          "DO NOT say you cannot access the internet or that you lack real-time web access. You CAN and MUST use your web tools when the task requires current information.",
+        );
+        if (hasWeb) capabilities.push("- web_fetch: Fetch any URL and get its content. Use this to search the web, read news sites, access documentation, etc. Pass URLs like https://news.google.com, https://reuters.com, etc.");
+        if (hasHttp) capabilities.push("- http_request: Make full HTTP requests (GET, POST, PUT, DELETE) with headers and body. Use for APIs and web services.");
       }
       if (availableToolNames.some((t) => t === "exec_command" || t === "*")) {
-        capabilities.push("You CAN execute shell commands using exec_command.");
+        capabilities.push("- exec_command: Execute shell commands. Use for running scripts, builds, tests, etc.");
       }
       parts.push(`\n--- Available Tools ---\nTools: ${toolList}\n${capabilities.join("\n")}`);
     }
