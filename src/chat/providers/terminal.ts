@@ -10,6 +10,7 @@ export class TerminalProvider implements ChatProvider {
   private rl: readline.Interface | null = null;
   private handler: ((msg: ChatMessage) => Promise<void>) | null = null;
   private currentProject: string | null = null;
+  private activeBloops = 0;
   private completerFn: ((line: string) => [string[], string]) | null = null;
 
   /** Set a completer for tab-completion (call before start). */
@@ -130,16 +131,37 @@ export class TerminalProvider implements ChatProvider {
   /** Update the prompt to show current project context. */
   setProjectContext(projectSlug: string | null): void {
     this.currentProject = projectSlug;
+    this.refreshPrompt();
+  }
+
+  /** Track active background bloops in the prompt. */
+  bloopStarted(): void {
+    this.activeBloops++;
+    this.refreshPrompt();
+  }
+
+  bloopFinished(): void {
+    this.activeBloops = Math.max(0, this.activeBloops - 1);
+    this.refreshPrompt();
+  }
+
+  private refreshPrompt(): void {
     if (this.rl) {
       this.rl.setPrompt(this.buildPrompt());
     }
   }
 
   private buildPrompt(): string {
+    let ctx = "";
     if (this.currentProject) {
-      return chalk.yellow("skippy") + chalk.dim(` [${this.currentProject}]`) + chalk.yellow("> ");
+      const bloopBadge = this.activeBloops > 0
+        ? chalk.blue(` ⟳${this.activeBloops}`)
+        : "";
+      ctx = chalk.dim(` [${this.currentProject}`) + bloopBadge + chalk.dim("]");
+    } else if (this.activeBloops > 0) {
+      ctx = chalk.blue(` ⟳${this.activeBloops}`);
     }
-    return chalk.yellow("skippy> ");
+    return chalk.yellow("skippy") + ctx + chalk.yellow("> ");
   }
 
   private showPrompt(): void {

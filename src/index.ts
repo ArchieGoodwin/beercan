@@ -86,8 +86,45 @@ export class BeerCanEngine {
       });
     }
 
+    // Load custom tools from plugin directories
+    await this.loadPluginTools();
+
     this.logger.info("engine", "Async init complete");
     return this;
+  }
+
+  /** Load custom tools from ~/.beercan/tools/ and per-project tools/ directories. */
+  private async loadPluginTools(): Promise<void> {
+    const globalToolsDir = path.join(this.config.dataDir, "tools");
+    await this.loadToolsFromDir(globalToolsDir);
+  }
+
+  private async loadToolsFromDir(dir: string): Promise<void> {
+    if (!fs.existsSync(dir)) return;
+
+    const files = fs.readdirSync(dir).filter((f) => f.endsWith(".js") || f.endsWith(".mjs"));
+    for (const file of files) {
+      try {
+        const fullPath = path.resolve(dir, file);
+        const mod = await import(`file://${fullPath}`);
+        if (mod.definition && mod.handler) {
+          this.tools.register(mod.definition, mod.handler);
+          this.logger.info("engine", `Loaded custom tool: ${mod.definition.name}`, { file });
+        } else if (mod.default?.definition && mod.default?.handler) {
+          this.tools.register(mod.default.definition, mod.default.handler);
+          this.logger.info("engine", `Loaded custom tool: ${mod.default.definition.name}`, { file });
+        } else if (Array.isArray(mod.tools)) {
+          for (const tool of mod.tools) {
+            this.tools.register(tool.definition, tool.handler);
+            this.logger.info("engine", `Loaded custom tool: ${tool.definition.name}`, { file });
+          }
+        } else {
+          this.logger.warn("engine", `Skipped ${file}: no definition/handler exports found`);
+        }
+      } catch (err: any) {
+        this.logger.error("engine", `Failed to load tool plugin: ${file}`, { error: err.message });
+      }
+    }
   }
 
   private registerBuiltinTools(): void {

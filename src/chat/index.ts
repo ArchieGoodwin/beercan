@@ -153,6 +153,9 @@ export class ChatBridge {
     });
     this.updateProviderContext(provider, intent.projectSlug);
 
+    // Track active bloop in prompt
+    this.notifyBloopState(provider, "start");
+
     // Run bloop in background — don't block chat
     // Only show major events (phases, decisions) — skip noisy tool calls
     const channelId = msg.channelId;
@@ -169,12 +172,14 @@ export class ChatBridge {
         }
       },
     }).then(async (bloop) => {
+      this.notifyBloopState(provider, "end");
       this.channelContexts.set(channelId, {
         ...this.channelContexts.get(channelId),
         lastBloopId: bloop.id,
       });
       await this.sendWithContext(provider, msg, `\n${pick("bloop_completed")}\n${formatBloopResult(bloop)}`, { format: "markdown" });
     }).catch(async (err: any) => {
+      this.notifyBloopState(provider, "end");
       await provider.sendMessage(channelId, `${pick("bloop_failed")}\n${err.message}`);
     });
   }
@@ -375,6 +380,14 @@ export class ChatBridge {
     }
 
     return [[], line];
+  }
+
+  /** Notify provider of bloop start/end for prompt indicator. */
+  private notifyBloopState(provider: ChatProvider, state: "start" | "end"): void {
+    if ("bloopStarted" in provider && typeof (provider as any).bloopStarted === "function") {
+      if (state === "start") (provider as any).bloopStarted();
+      else (provider as any).bloopFinished();
+    }
   }
 
   private updateProviderContext(provider: ChatProvider, projectSlug: string | null): void {

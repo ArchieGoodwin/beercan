@@ -139,7 +139,7 @@ $ beercan run my-project "Add OAuth2 login with Google provider"
 
 The gatekeeper can also invent custom roles with LLM-generated prompts for unusual tasks.
 
-## 13 Built-in Tools
+## Built-in Tools
 
 | Category | Tools |
 |----------|-------|
@@ -148,7 +148,54 @@ The gatekeeper can also invent custom roles with LLM-generated prompts for unusu
 | Notification | `send_notification` (macOS desktop) |
 | Memory | `memory_search`, `memory_store`, `memory_update`, `memory_link`, `memory_query_graph`, `memory_scratch` |
 
-Plus any tools from MCP servers you connect.
+Plus custom tools from `~/.beercan/tools/` and MCP servers.
+
+## Custom Tools
+
+Drop a `.js` file in `~/.beercan/tools/` and it's auto-loaded on startup. Every agent gets access automatically — no template changes needed.
+
+```bash
+# Scaffold a new tool
+beercan tool:create google_search
+
+# Edit it
+vim ~/.beercan/tools/google_search.js
+
+# List custom tools
+beercan tool:list
+
+# Remove
+beercan tool:remove google_search
+```
+
+Example tool (`~/.beercan/tools/google_search.js`):
+```javascript
+export const definition = {
+  name: "google_search",
+  description: "Search Google and return top results",
+  inputSchema: {
+    type: "object",
+    properties: {
+      query: { type: "string", description: "Search query" },
+      limit: { type: "number", description: "Max results (default 5)" },
+    },
+    required: ["query"],
+  },
+};
+
+export async function handler({ query, limit = 5 }) {
+  const res = await fetch(`https://api.example.com/search?q=${encodeURIComponent(query)}&limit=${limit}`);
+  const data = await res.json();
+  return JSON.stringify(data.results);
+}
+```
+
+Three ways to extend BeerCan with tools:
+1. **Plugin directory** — drop `.js` files in `~/.beercan/tools/` (simplest)
+2. **MCP servers** — `beercan mcp:add project my-tool npx some-server` (standard protocol)
+3. **Programmatic** — `engine.toolRegistry.register(definition, handler)` (library usage)
+
+Custom tools are automatically available to all agent roles. No configuration needed.
 
 ## Memory System
 
@@ -254,6 +301,9 @@ beercan schedule:add <project> "<cron>" <goal>
 beercan schedule:list [project]
 beercan trigger:add <project> <type> <filter> <goal>
 beercan mcp:add <project> <name> <cmd> [args]
+beercan tool:create <name>              Scaffold a custom tool
+beercan tool:list                       List custom tools
+beercan tool:remove <name>              Remove a custom tool
 beercan daemon                              Run scheduler + events
 beercan chat [project]                  Interactive Skippy chat
 beercan serve [port]                    API server (default: 3939)

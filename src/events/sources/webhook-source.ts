@@ -115,7 +115,8 @@ export class WebhookSource {
 
     // API key auth (if configured)
     const config = getConfig();
-    if (config.apiKey && url.pathname !== "/api/health") {
+    const publicPaths = ["/api/health", "/", "/dashboard"];
+    if (config.apiKey && !publicPaths.includes(url.pathname)) {
       const authHeader = req.headers.authorization;
       const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
       if (token !== config.apiKey) {

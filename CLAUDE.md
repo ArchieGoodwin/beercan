@@ -47,6 +47,7 @@ CLI commands via `npm run beercan --` (or `beercan` if installed globally):
 - `schedule:add/list/remove` — cron-based bloop scheduling
 - `trigger:add/list/remove` — event-based triggers
 - `mcp:add/list` — MCP server management per project
+- `tool:create/list/remove` — custom tool plugin management
 
 ## Architecture
 
@@ -82,6 +83,7 @@ CLI commands via `npm run beercan --` (or `beercan` if installed globally):
 - `src/chat/skippy-phrases.ts` — Randomized phrase pools (60+ phrases, 13 categories) with `pick()`, `addPhrases()`, `setPhrases()` API
 - `src/chat/intent.ts` — Two-tier intent parser (slash commands + LLM classification)
 - `src/chat/providers/` — Terminal, Telegram, Slack, WebSocket chat providers
+- `~/.beercan/tools/` — Custom tool plugin directory (auto-loaded `.js` files)
 
 **Storage:** SQLite via better-sqlite3 + sqlite-vec extension. All data in `~/.beercan/orchestrator.db`. Per-project config in `~/.beercan/projects/<slug>/`. Structured logs in `~/.beercan/beercan.log`.
 
@@ -189,6 +191,10 @@ Provider-agnostic chat layer for interacting with BeerCan via natural language.
 | `memory_scratch` | Memory | Read/write per-bloop working memory scratchpad |
 
 **Cloudflare Browser Rendering:** Set `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID` env vars to enable. Fetches clean markdown from JS-rendered pages via their crawl endpoint.
+
+**Custom tools:** Drop `.js` files in `~/.beercan/tools/`. Auto-loaded on startup. Custom tools are automatically available to all agent roles (appended to every role's allowedTools). Three export patterns supported: `{ definition, handler }`, `{ default: { definition, handler } }`, or `{ tools: [{ definition, handler }, ...] }`.
+
+**CLI:** `beercan tool:create <name>`, `beercan tool:list`, `beercan tool:remove <name>`.
 
 ## Memory Architecture
 

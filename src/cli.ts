@@ -3,7 +3,7 @@ import chalk from "chalk";
 import fs from "fs";
 import path from "path";
 import { BeerCanEngine, PRESET_TEAMS } from "./index.js";
-import { getProjectDir } from "./config.js";
+import { getConfig, getProjectDir } from "./config.js";
 import { startDaemon } from "./events/daemon.js";
 import type { BloopEvent } from "./index.js";
 
@@ -203,6 +203,90 @@ async function runStop(): Promise<void> {
   }
 }
 
+// ── Tool Commands (no engine needed) ─────────────────────────
+
+async function runToolCommand(command: string, args: string[]): Promise<void> {
+  const config = getConfig();
+  const toolsDir = path.join(config.dataDir, "tools");
+
+  if (command === "tool:create") {
+    const toolName = args[1];
+    if (!toolName) {
+      console.log(chalk.red("Usage: beercan tool:create <name>"));
+      console.log(chalk.dim("Creates a tool template in ~/.beercan/tools/<name>.js"));
+      return;
+    }
+    fs.mkdirSync(toolsDir, { recursive: true });
+    const toolPath = path.join(toolsDir, `${toolName}.js`);
+    if (fs.existsSync(toolPath)) {
+      console.log(chalk.yellow(`Tool already exists: ${toolPath}`));
+      return;
+    }
+    const template = `// BeerCan Custom Tool: ${toolName}
+// Drop this file in ~/.beercan/tools/ and it will be auto-loaded.
+// Agents can call this tool by name during bloop execution.
+
+export const definition = {
+  name: "${toolName}",
+  description: "Describe what this tool does — agents read this to decide when to use it.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      input: {
+        type: "string",
+        description: "The input parameter",
+      },
+    },
+    required: ["input"],
+  },
+};
+
+export async function handler(params) {
+  const { input } = params;
+
+  // Your tool logic here
+  // Return a string result that the agent will see
+  return \`Tool ${toolName} received: \${input}\`;
+}
+`;
+    fs.writeFileSync(toolPath, template);
+    console.log(chalk.green(`✓ Tool template created: ${toolPath}`));
+    console.log(chalk.dim("  Edit the file to add your logic, then restart BeerCan."));
+  }
+
+  if (command === "tool:list") {
+    if (!fs.existsSync(toolsDir)) {
+      console.log(chalk.dim("No custom tools. Create one with: beercan tool:create <name>"));
+      return;
+    }
+    const toolFiles = fs.readdirSync(toolsDir).filter((f: string) => f.endsWith(".js") || f.endsWith(".mjs"));
+    if (toolFiles.length === 0) {
+      console.log(chalk.dim("No custom tools found in ~/.beercan/tools/"));
+      return;
+    }
+    console.log(chalk.bold("Custom Tools:"));
+    for (const f of toolFiles) {
+      console.log(chalk.cyan(`  ${f.replace(/\.(js|mjs)$/, "")}`));
+    }
+    console.log(chalk.dim(`\n  Location: ${toolsDir}`));
+  }
+
+  if (command === "tool:remove") {
+    const rmName = args[1];
+    if (!rmName) {
+      console.log(chalk.red("Usage: beercan tool:remove <name>"));
+      return;
+    }
+    const rmPath = path.join(toolsDir, `${rmName}.js`);
+    if (!fs.existsSync(rmPath)) {
+      console.log(chalk.red(`Tool not found: ${rmName}`));
+      return;
+    }
+    fs.unlinkSync(rmPath);
+    console.log(chalk.green(`✓ Tool removed: ${rmName}`));
+  }
+}
+
 // ── CLI Commands ─────────────────────────────────────────────
 
 async function main() {
@@ -218,6 +302,11 @@ async function main() {
 
   if (command === "stop") {
     await runStop();
+    return;
+  }
+
+  if (command === "tool:create" || command === "tool:list" || command === "tool:remove") {
+    await runToolCommand(command, args);
     return;
   }
 
@@ -879,7 +968,10 @@ Do NOT rewrite everything — make focused, incremental changes.`,
         console.log(chalk.cyan("  trigger:list [project]") + chalk.dim("                List triggers"));
         console.log(chalk.cyan("  trigger:remove <id>") + chalk.dim("                   Remove a trigger"));
         console.log();
-        console.log(chalk.bold("MCP Commands:"));
+        console.log(chalk.bold("Tools & MCP:"));
+        console.log(chalk.cyan("  tool:create <name>") + chalk.dim("                    Create a custom tool template"));
+        console.log(chalk.cyan("  tool:list") + chalk.dim("                             List custom tools"));
+        console.log(chalk.cyan("  tool:remove <name>") + chalk.dim("                    Remove a custom tool"));
         console.log(chalk.cyan("  mcp:add <project> <name> <cmd> [args]") + chalk.dim("  Add MCP server"));
         console.log(chalk.cyan("  mcp:list <project>") + chalk.dim("                    List MCP servers"));
         console.log();

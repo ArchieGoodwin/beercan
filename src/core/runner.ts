@@ -463,6 +463,12 @@ export class BloopRunner {
     return parts.join("\n");
   }
 
+  private static BUILTIN_TOOL_NAMES = new Set([
+    "read_file", "write_file", "list_directory", "exec_command",
+    "web_fetch", "http_request", "send_notification",
+    "memory_search", "memory_store", "memory_update", "memory_link", "memory_query_graph", "memory_scratch",
+  ]);
+
   private resolveTools(
     roleTools: string[],
     projectTools: string[]
@@ -470,9 +476,15 @@ export class BloopRunner {
     // If either is wildcard, use the other as constraint
     if (roleTools.includes("*") && projectTools.includes("*")) return ["*"];
     if (roleTools.includes("*")) return projectTools;
-    if (projectTools.includes("*")) return roleTools;
-    // Intersection
-    return roleTools.filter((t) => projectTools.includes(t));
+    if (projectTools.includes("*")) {
+      // Append custom (non-builtin) tools so they're always available
+      const customTools = this.tools.listToolNames().filter((t) => !BloopRunner.BUILTIN_TOOL_NAMES.has(t));
+      return [...new Set([...roleTools, ...customTools])];
+    }
+    // Intersection + custom tools that are in project's allowed list
+    const base = roleTools.filter((t) => projectTools.includes(t));
+    const customTools = this.tools.listToolNames().filter((t) => !BloopRunner.BUILTIN_TOOL_NAMES.has(t) && projectTools.includes(t));
+    return [...new Set([...base, ...customTools])];
   }
 
   private extractDecision(

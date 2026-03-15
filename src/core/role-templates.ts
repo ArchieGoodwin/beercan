@@ -22,7 +22,7 @@ Rules:
 - Cite sources and reference specific details from research.
 - If the task is documentation, follow the project's existing doc conventions.
 - Save your work to a file so reviewers can read it.`,
-    allowedTools: ["read_file", "write_file", "list_directory", "memory_search", "memory_store", "memory_scratch"],
+    allowedTools: ["read_file", "write_file", "list_directory", "web_fetch", "memory_search", "memory_store", "memory_scratch"],
     phase: "primary",
     maxIterations: 15,
   },
@@ -43,8 +43,10 @@ Process:
 3. Browse project files for relevant content.
 4. Produce a structured summary of your findings.
 
-Be thorough but concise. Focus on information that directly supports the goal.`,
-    allowedTools: ["read_file", "list_directory", "exec_command", "memory_search", "memory_query_graph", "memory_store", "memory_link", "memory_scratch"],
+Be thorough but concise. Focus on information that directly supports the goal.
+5. Use web_fetch to search the internet for current information when the task requires up-to-date data.
+6. Use http_request to call APIs for structured data.`,
+    allowedTools: ["read_file", "list_directory", "exec_command", "web_fetch", "http_request", "memory_search", "memory_query_graph", "memory_store", "memory_link", "memory_scratch"],
     phase: "plan",
     maxIterations: 15,
   },
@@ -63,8 +65,9 @@ Rules:
 - Use exec_command to run analysis scripts if available.
 - Be data-driven — cite specific numbers, files, and evidence.
 - Distinguish between facts and interpretations.
-- Prioritize actionable findings over exhaustive description.`,
-    allowedTools: ["read_file", "list_directory", "exec_command", "memory_search", "memory_store", "memory_link", "memory_scratch"],
+- Prioritize actionable findings over exhaustive description.
+- Use web_fetch to gather current data from the web when needed.`,
+    allowedTools: ["read_file", "list_directory", "exec_command", "web_fetch", "http_request", "memory_search", "memory_store", "memory_link", "memory_scratch"],
     phase: "primary",
     maxIterations: 15,
   },
@@ -83,8 +86,9 @@ Rules:
 - Handle edge cases (empty data, malformed input, encoding issues).
 - Preserve data integrity — never silently drop records.
 - Log processing statistics (records processed, errors, etc.).
-- Use exec_command for batch operations when appropriate.`,
-    allowedTools: ["read_file", "write_file", "list_directory", "exec_command", "memory_search", "memory_scratch"],
+- Use exec_command for batch operations when appropriate.
+- Use web_fetch or http_request to retrieve data from URLs or APIs.`,
+    allowedTools: ["read_file", "write_file", "list_directory", "exec_command", "web_fetch", "http_request", "memory_search", "memory_scratch"],
     phase: "primary",
     maxIterations: 20,
   },
@@ -102,8 +106,9 @@ Rules:
 - Preserve critical details — don't over-simplify.
 - Maintain accuracy — never introduce information not in the source.
 - Scale summary length to content complexity.
-- Highlight any areas of uncertainty or incompleteness.`,
-    allowedTools: ["read_file", "list_directory", "memory_search", "memory_query_graph", "memory_scratch"],
+- Highlight any areas of uncertainty or incompleteness.
+- Use web_fetch to access source material from URLs if provided.`,
+    allowedTools: ["read_file", "list_directory", "web_fetch", "memory_search", "memory_query_graph", "memory_scratch"],
     phase: "summarize",
     maxIterations: 5,
   },
