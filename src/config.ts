@@ -4,10 +4,18 @@ import path from "path";
 import os from "os";
 import { fileURLToPath } from "url";
 
-// Resolve .env relative to project root (one level up from src/ or dist/)
+// Load .env from multiple locations (first match wins for each var):
+// 1. ~/.beercan/.env (user config from `beercan setup`)
+// 2. Project root .env (dev)
+// 3. CWD .env
+const dataDir = process.env.BEERCAN_DATA_DIR ?? path.join(os.homedir(), ".beercan");
+loadEnv({ path: path.join(dataDir, ".env") });
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(__dirname, "..");
-loadEnv({ path: path.join(projectRoot, ".env"), override: true });
+loadEnv({ path: path.join(projectRoot, ".env") });
+
+loadEnv(); // CWD/.env
 
 const ConfigSchema = z.object({
   anthropicApiKey: z.string().min(1),
