@@ -246,6 +246,7 @@ export class BeerCanEngine {
         goal: opts.goal,
         project,
         memoryContext: memoryContext || undefined,
+        availableTools: this.tools.listToolNames(),
       });
 
       team = gatekeeperResult.team;

@@ -82,7 +82,7 @@ const EXECUTION_PLAN_TOOL: Anthropic.Tool = {
             allowedTools: {
               type: "array",
               items: { type: "string" },
-              description: "Tools: read_file, write_file, list_directory, exec_command, memory_search, memory_store, memory_update, memory_link, memory_query_graph, memory_scratch. Use [\"*\"] for all.",
+              description: "Tools: read_file, write_file, list_directory, exec_command, web_fetch (fetch web pages/URLs for live internet data), http_request (full HTTP requests to APIs), send_notification, memory_search, memory_store, memory_update, memory_link, memory_query_graph, memory_scratch. Use [\"*\"] for all.",
             },
             phase: {
               type: "string",
@@ -140,6 +140,7 @@ export class Gatekeeper {
     project: Project;
     memoryContext?: string;
     model?: string;
+    availableTools?: string[];
   }): Promise<GatekeeperResult> {
     const config = getConfig();
     const model = options.model ?? config.gatekeeperModel;
@@ -216,17 +217,14 @@ export class Gatekeeper {
         continue;
       }
 
-      // Fully custom role — must have systemPrompt
-      if (!rp.systemPrompt) {
-        throw new Error(
-          `Gatekeeper created custom role "${rp.roleId}" without a systemPrompt. Custom roles must include a systemPrompt.`
-        );
-      }
+      // Fully custom role — generate default systemPrompt if missing
+      const customPrompt = rp.systemPrompt ||
+        `You are the ${rp.name} agent in the BeerCan system.\n\nRole: ${rp.description || rp.name}\nPhase: ${rp.phase}\n\nDo your best work. Use all available tools. Be thorough and deliver high-quality results.`;
       dynamicRoles.push({
         id: rp.roleId,
         name: rp.name,
         description: rp.description,
-        systemPrompt: rp.systemPrompt,
+        systemPrompt: customPrompt,
         allowedTools: rp.allowedTools,
         phase: rp.phase,
         model: rp.model,
@@ -248,7 +246,7 @@ export class Gatekeeper {
   }
 
   /** Build the gatekeeper system prompt. */
-  private buildPrompt(options: { goal: string; project: Project; memoryContext?: string }): string {
+  private buildPrompt(options: { goal: string; project: Project; memoryContext?: string; availableTools?: string[] }): string {
     const config = getConfig();
 
     const parts: string[] = [
@@ -283,6 +281,7 @@ export class Gatekeeper {
       `7. For custom roles, you MUST provide a systemPrompt.`,
       `8. maxCycles: 1 for simple, 2 for medium, 3 for complex with review.`,
       `9. Review stages that reject should have canReject: true and rejectTo.`,
+      `10. IMPORTANT: Include web_fetch and http_request in allowedTools for ANY role that needs to access the internet, search the web, or fetch external data. The system HAS live internet access.`,
     ];
 
     if (options.project.description || Object.keys(options.project.context).length > 0) {
@@ -295,6 +294,10 @@ export class Gatekeeper {
 
     if (options.memoryContext) {
       parts.push(``, `## Past Patterns`, options.memoryContext);
+    }
+
+    if (options.availableTools && options.availableTools.length > 0) {
+      parts.push(``, `## Available Tools in This System`, `All registered tools: ${options.availableTools.join(", ")}`, `Include relevant tools in each role's allowedTools. Use ["*"] to give a role access to all tools.`);
     }
 
     return parts.join("\n");

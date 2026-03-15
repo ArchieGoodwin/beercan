@@ -114,9 +114,11 @@ export class WebhookSource {
     }
 
     // API key auth (if configured)
+    // GET requests are public (dashboard, status, monitoring)
+    // POST/DELETE require auth (task submission, job cancellation)
     const config = getConfig();
-    const publicPaths = ["/api/health", "/", "/dashboard"];
-    if (config.apiKey && !publicPaths.includes(url.pathname)) {
+    const isMutating = method === "POST" || method === "DELETE" || method === "PUT" || method === "PATCH";
+    if (config.apiKey && isMutating) {
       const authHeader = req.headers.authorization;
       const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
       if (token !== config.apiKey) {
