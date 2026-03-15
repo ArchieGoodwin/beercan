@@ -1,16 +1,51 @@
 {
   "name": "beercan",
-  "version": "0.1.0",
-  "description": "Autonomous agent system — smarter than you, and it knows it.",
+  "version": "0.2.0",
+  "description": "Autonomous AI agent system — powered by Skippy the Magnificent.",
   "type": "module",
   "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "bin": {
     "beercan": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "src/dashboard",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "ai",
+    "agent",
+    "autonomous",
+    "claude",
+    "anthropic",
+    "pipeline",
+    "orchestration",
+    "multi-agent",
+    "rag",
+    "memory",
+    "knowledge-graph",
+    "sqlite",
+    "mcp",
+    "chat",
+    "telegram",
+    "slack",
+    "skippy"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ArchieGoodwin/beercan"
+  },
+  "homepage": "https://beercan.run",
+  "engines": {
+    "node": ">=18.0.0"
   },
   "scripts": {
     "build": "tsc",
     "dev": "tsx watch src/index.ts",
-    "start": "node dist/index.ts",
+    "start": "node dist/index.js",
     "beercan": "tsx src/cli.ts",
     "test": "vitest run --exclude tests/integration.test.ts",
     "test:watch": "vitest --exclude tests/integration.test.ts",
@@ -31,6 +66,11 @@
     "undici": "^7.23.0",
     "uuid": "^11.1.0",
     "zod": "^3.24.0"
+  },
+  "optionalDependencies": {
+    "telegraf": "^4.16.0",
+    "@slack/bolt": "^4.0.0",
+    "ws": "^8.16.0"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",

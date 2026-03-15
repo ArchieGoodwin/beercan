@@ -585,16 +585,133 @@ Do NOT rewrite everything — make focused, incremental changes.`,
         break;
       }
 
-      // ── Daemon Mode ─────────────────────────────────────────
+      // ── Chat Mode ───────────────────────────────────────────
 
-      case "daemon": {
-        console.log(chalk.bold.blue("\n🍺 Starting BeerCan daemon...\n"));
+      case "chat": {
+        const chatProject = args[1];
 
+        const { createAnthropicClient } = await import("./client.js");
+        const { ChatBridge } = await import("./chat/index.js");
+        const { TerminalProvider } = await import("./chat/providers/terminal.js");
+
+        const client = await createAnthropicClient();
+        const bridge = new ChatBridge(engine, client);
+        const terminal = new TerminalProvider();
+        bridge.addProvider(terminal);
+
+        if (chatProject) {
+          const p = engine.getProject(chatProject);
+          if (!p) {
+            console.log(chalk.red(`Project not found: ${chatProject}`));
+            break;
+          }
+          bridge.setDefaultProject("terminal", chatProject);
+        } else {
+          // Auto-select if there's only one project
+          const projects = engine.listProjects();
+          if (projects.length === 1) {
+            bridge.setDefaultProject("terminal", projects[0].slug);
+          }
+        }
+
+        await bridge.start();
+        await new Promise(() => {}); // Keep alive
+        break;
+      }
+
+      // ── Start (background daemon) ──────────────────────────
+
+      case "start": {
+        const { getConfig: gc } = await import("./config.js");
+        const pidFile = path.join(gc().dataDir, "beercan.pid");
+
+        // Check if already running
+        if (fs.existsSync(pidFile)) {
+          const existingPid = parseInt(fs.readFileSync(pidFile, "utf-8").trim(), 10);
+          try {
+            process.kill(existingPid, 0); // Check if process exists
+            console.log(chalk.yellow(`BeerCan is already running (PID ${existingPid}). Use ${chalk.cyan("beercan stop")} first.`));
+            break;
+          } catch {
+            // Process doesn't exist — stale PID file, clean up
+            fs.unlinkSync(pidFile);
+          }
+        }
+
+        // Fork a background process
+        const { fork } = await import("child_process");
+        const child = fork(process.argv[1], ["_daemon"], {
+          detached: true,
+          stdio: "ignore",
+        });
+
+        child.unref();
+        fs.writeFileSync(pidFile, String(child.pid));
+
+        console.log(chalk.bold.blue("\n🍺 BeerCan started"));
+        console.log(chalk.dim(`  PID: ${child.pid}`));
+        console.log(chalk.dim(`  API: http://localhost:3939`));
+        console.log(chalk.dim(`  Dashboard: http://localhost:3939/`));
+        console.log(chalk.dim(`  Stop: beercan stop\n`));
+        break;
+      }
+
+      // ── Stop ──────────────────────────────────────────────
+
+      case "stop": {
+        const { getConfig: gc2 } = await import("./config.js");
+        const pidPath = path.join(gc2().dataDir, "beercan.pid");
+
+        if (!fs.existsSync(pidPath)) {
+          console.log(chalk.dim("BeerCan is not running."));
+          break;
+        }
+
+        const pid = parseInt(fs.readFileSync(pidPath, "utf-8").trim(), 10);
+        try {
+          process.kill(pid, "SIGTERM");
+          fs.unlinkSync(pidPath);
+          console.log(chalk.green(`BeerCan stopped (PID ${pid}).`));
+        } catch {
+          fs.unlinkSync(pidPath);
+          console.log(chalk.dim("BeerCan was not running (stale PID file cleaned up)."));
+        }
+        break;
+      }
+
+      // ── Internal daemon (called by start) ─────────────────
+
+      case "_daemon": {
         const scheduler = engine.getScheduler();
         const eventManager = engine.getEventManager();
 
-        // startDaemon handles init, start, and signal handling
+        // Write PID file (in case started directly)
+        const { getConfig: gc3 } = await import("./config.js");
+        const daemonPidFile = path.join(gc3().dataDir, "beercan.pid");
+        if (!fs.existsSync(daemonPidFile)) {
+          fs.writeFileSync(daemonPidFile, String(process.pid));
+        }
+
+        // Clean up PID file on exit
+        const cleanPid = () => {
+          try { fs.unlinkSync(daemonPidFile); } catch {}
+        };
+        process.on("exit", cleanPid);
+
         await startDaemon(engine, scheduler, eventManager);
+        break;
+      }
+
+      // ── Legacy aliases ─────────────────────────────────────
+
+      case "serve":
+      case "daemon": {
+        console.log(chalk.yellow(`"beercan ${command}" is deprecated. Use ${chalk.cyan("beercan start")} instead.`));
+        console.log(chalk.dim("Starting in foreground mode...\n"));
+
+        const scheduler2 = engine.getScheduler();
+        const eventManager2 = engine.getEventManager();
+        await startDaemon(engine, scheduler2, eventManager2);
         break;
       }
 
@@ -627,15 +744,17 @@ Do NOT rewrite everything — make focused, incremental changes.`,
         console.log(chalk.cyan("  mcp:add <project> <name> <cmd> [args]") + chalk.dim("  Add MCP server"));
         console.log(chalk.cyan("  mcp:list <project>") + chalk.dim("                    List MCP servers"));
         console.log();
-        console.log(chalk.bold("Daemon:"));
-        console.log(chalk.cyan("  daemon") + chalk.dim("                                Run scheduler + event system"));
+        console.log(chalk.bold("System:"));
+        console.log(chalk.cyan("  start") + chalk.dim("                                 Start BeerCan (background daemon + API + chat bots)"));
+        console.log(chalk.cyan("  stop") + chalk.dim("                                  Stop the background daemon"));
+        console.log(chalk.cyan("  chat [project]") + chalk.dim("                        Interactive Skippy chat"));
         console.log();
         console.log(chalk.dim("Teams: auto (default, gatekeeper picks), solo, code_review, full_team, managed"));
         break;
     }
   } finally {
     // Don't close in daemon mode — it runs forever
-    if (command !== "daemon") {
+    if (!["daemon", "serve", "_daemon", "start", "chat"].includes(command ?? "")) {
       await engine.close();
     }
   }

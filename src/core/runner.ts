@@ -20,6 +20,8 @@ export interface RunBloopOptions {
   extraContext?: string;
   /** Callback for real-time output */
   onEvent?: (event: BloopEvent) => void;
+  /** AbortSignal for cancellation/timeout support */
+  signal?: AbortSignal;
 }
 
 export type BloopEvent =
@@ -118,8 +120,27 @@ export class BloopRunner {
       };
     }
 
+    // Set up timeout + abort
+    const timeoutMs = config.bloopTimeoutMs;
+    const abortController = new AbortController();
+    const externalSignal = options.signal;
+
+    // Link external signal (e.g., from job queue cancellation)
+    if (externalSignal) {
+      if (externalSignal.aborted) {
+        abortController.abort(externalSignal.reason);
+      } else {
+        externalSignal.addEventListener("abort", () => abortController.abort(externalSignal.reason), { once: true });
+      }
+    }
+
+    const timeoutId = setTimeout(() => {
+      abortController.abort(new Error(`Bloop timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+
     try {
-      const result = await this.executePipeline(bloop, project, team, options);
+      const result = await this.executePipeline(bloop, project, team, options, abortController.signal);
+      clearTimeout(timeoutId);
       bloop.status = "completed";
       bloop.result = result;
       bloop.completedAt = new Date().toISOString();
@@ -132,14 +153,22 @@ export class BloopRunner {
       onEvent?.({ type: "complete", result });
       return bloop;
     } catch (err: any) {
-      bloop.status = "failed";
-      bloop.result = { error: err.message };
+      clearTimeout(timeoutId);
+      if (abortController.signal.aborted) {
+        bloop.status = "timeout";
+        bloop.result = { error: err.message || "Bloop timed out or was cancelled" };
+      } else {
+        bloop.status = "failed";
+        bloop.result = { error: err.message };
+      }
+      bloop.completedAt = new Date().toISOString();
       bloop.updatedAt = new Date().toISOString();
       this.db.updateBloop(bloop);
 
       onEvent?.({ type: "error", error: err.message });
       return bloop;
     } finally {
+      clearTimeout(timeoutId);
       // Clean up working memory and bloop context
       this.memory.getWorkingMemory().cleanup(bloop.id);
       this.currentBloopCtx = null;
@@ -152,13 +181,15 @@ export class BloopRunner {
     bloop: Bloop,
     project: Project,
     team: BloopTeam,
-    options: RunBloopOptions
+    options: RunBloopOptions,
+    signal?: AbortSignal
   ): Promise<unknown> {
     const { onEvent } = options;
     let pipelineContext = ""; // accumulated output passed between phases
     let cycle = 0;
 
     while (cycle < team.maxCycles) {
+      if (signal?.aborted) throw new Error(String((signal.reason as any)?.message ?? "Bloop aborted"));
       cycle++;
       onEvent?.({ type: "cycle", cycle, maxCycles: team.maxCycles });
 
@@ -177,7 +208,8 @@ export class BloopRunner {
           project,
           role,
           pipelineContext,
-          options
+          options,
+          signal
         );
 
         pipelineContext += `\n\n--- ${role.name} (${stage.phase}) ---\n${phaseResult.content}`;
@@ -238,7 +270,8 @@ export class BloopRunner {
     project: Project,
     role: AgentRole,
     pipelineContext: string,
-    options: RunBloopOptions
+    options: RunBloopOptions,
+    signal?: AbortSignal
   ): Promise<{ content: string }> {
     const config = getConfig();
     const model = role.model ?? config.defaultModel;
@@ -270,6 +303,7 @@ export class BloopRunner {
     let finalContent = "";
 
     while (iterations < role.maxIterations) {
+      if (signal?.aborted) throw new Error(String((signal.reason as any)?.message ?? "Bloop aborted"));
       iterations++;
       bloop.iterations++;
 
@@ -279,7 +313,7 @@ export class BloopRunner {
         system: systemPrompt,
         tools: anthropicTools.length > 0 ? anthropicTools : undefined,
         messages,
-      });
+      }, { signal });
 
       // Track token usage
       bloop.tokensUsed += (response.usage?.input_tokens ?? 0) + (response.usage?.output_tokens ?? 0);

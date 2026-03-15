@@ -71,11 +71,21 @@ export class BeerCanEngine {
     this.gatekeeper = new Gatekeeper(client, this.memoryManager);
     this.jobQueue = new JobQueue(this.db, this.config.maxConcurrent);
     this.jobQueue.setExecutor(async (opts) => {
-      const bloop = await this.runBloop(opts);
+      const bloop = await this.runBloop({ ...opts, signal: opts.signal });
       return { id: bloop.id, status: bloop.status };
     });
     this.scheduler = new Scheduler(this.db, this);
     this.eventManager = new EventManager(this.db, this);
+
+    // Recover stale jobs/bloops from previous crash
+    const recovered = this.db.recoverStaleJobs();
+    if (recovered.jobs > 0 || recovered.bloops > 0) {
+      this.logger.warn("engine", `Recovered stale records on startup`, {
+        jobs: recovered.jobs,
+        bloops: recovered.bloops,
+      });
+    }
+
     this.logger.info("engine", "Async init complete");
     return this;
   }
@@ -178,6 +188,7 @@ export class BeerCanEngine {
     team?: string | BloopTeam;
     extraContext?: string;
     onEvent?: RunBloopOptions["onEvent"];
+    signal?: AbortSignal;
   }) {
     const project = this.db.getProjectBySlug(opts.projectSlug);
     if (!project) {
@@ -226,13 +237,19 @@ export class BeerCanEngine {
     });
 
     try {
-      return await this.runner.run({
+      const bloop = await this.runner.run({
         project,
         goal: opts.goal,
         team,
         extraContext: opts.extraContext,
         onEvent: opts.onEvent,
+        signal: opts.signal,
       });
+
+      // Auto-notify on completion/failure
+      this.notifyBloopResult(bloop, opts.projectSlug);
+
+      return bloop;
     } finally {
       if (gatekeeperResult) {
         for (const role of gatekeeperResult.dynamicRoles) {
@@ -240,6 +257,64 @@ export class BeerCanEngine {
         }
       }
     }
+  }
+
+  // ── Notifications ──────────────────────────────────────
+
+  private notifyBloopResult(bloop: Bloop, projectSlug: string): void {
+    const config = getConfig();
+
+    // Publish lifecycle event to EventBus
+    if (this.eventManager) {
+      const bus = this.eventManager.getEventBus();
+      bus.publish({
+        type: bloop.status === "completed" ? "bloop:completed" : "bloop:failed",
+        projectSlug,
+        source: "internal",
+        data: { bloopId: bloop.id, goal: bloop.goal, status: bloop.status, tokensUsed: bloop.tokensUsed },
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    // Desktop notification
+    if (config.notifyOnComplete) {
+      const title = bloop.status === "completed" ? "Bloop Completed" : "Bloop Failed";
+      const message = `${bloop.goal.slice(0, 100)} [${bloop.tokensUsed} tokens]`;
+      sendNotificationHandler({ title, message }).catch(() => {});
+    }
+
+    // Webhook callback
+    if (config.notifyWebhookUrl) {
+      fetch(config.notifyWebhookUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          event: bloop.status === "completed" ? "bloop:completed" : "bloop:failed",
+          bloopId: bloop.id,
+          projectSlug,
+          goal: bloop.goal,
+          status: bloop.status,
+          result: bloop.result,
+          tokensUsed: bloop.tokensUsed,
+        }),
+      }).catch(() => {});
+    }
+  }
+
+  // ── Aggregate Queries ───────────────────────────────────
+
+  getBloopStats() {
+    return this.db.getBloopStats();
+  }
+
+  getProjectBloopStats(projectSlug: string) {
+    const project = this.db.getProjectBySlug(projectSlug);
+    if (!project) return null;
+    return this.db.getProjectBloopStats(project.id);
+  }
+
+  getRecentBloops(limit = 20, status?: string) {
+    return this.db.getRecentBloops(limit, status);
   }
 
   // ── Subsystem Access ──────────────────────────────────────

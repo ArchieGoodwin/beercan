@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-Beercan is an autonomous agent system with sandboxed projects and multi-agent pipelines. It orchestrates Claude-powered agents through configurable team pipelines (solo, code_review, managed, full_team) or dynamically via a Gatekeeper that analyzes goals and composes the right team automatically.
+Beercan is an autonomous agent system with sandboxed projects and multi-agent pipelines, ruled by Skippy the Magnificent (an Elder AI in the form of a beer can, from Craig Alanson's Expeditionary Force series). It orchestrates Claude-powered agents through configurable team pipelines (solo, code_review, managed, full_team) or dynamically via a Gatekeeper, and provides a conversational interface (terminal, Telegram, Slack, WebSocket) for natural language interaction.
 
 ## Commands
 
@@ -13,7 +13,7 @@ npm run build              # TypeScript compilation (tsc)
 npm run dev                # Watch mode with tsx
 npm run beercan -- <cmd>   # Run CLI commands (tsx src/cli.ts)
 npm start                  # Run compiled output (node dist/index.ts)
-npm test                   # Unit tests (104 tests, vitest)
+npm test                   # Unit tests (116 tests, vitest)
 npm run test:integration   # Integration tests with real Claude API
 npm run test:all           # All tests (unit + integration)
 ```
@@ -37,11 +37,15 @@ CLI commands via `npm run beercan --` (or `beercan` if installed globally):
 **Job queue:**
 - `jobs [status]` — view job queue (pending, running, completed, failed counts)
 
+**Chat & server:**
+- `chat [project]` — interactive conversational mode (terminal REPL)
+- `serve [port]` — start API-only server (default port 3939)
+- `daemon` — run scheduler + event system + API + chat providers
+
 **Scheduling & events:**
 - `schedule:add/list/remove` — cron-based bloop scheduling
 - `trigger:add/list/remove` — event-based triggers
 - `mcp:add/list` — MCP server management per project
-- `daemon` — run scheduler + event system
 
 ## Architecture
 
@@ -70,6 +74,12 @@ CLI commands via `npm run beercan --` (or `beercan` if installed globally):
 - `src/mcp/` — Model Context Protocol integration (stdio transport, per-project config)
 - `src/events/` — event system with webhook, filesystem, polling, and macOS sources
 - `src/scheduler/` — cron-based bloop scheduling via node-cron
+- `src/api/index.ts` — `registerStatusApi()`, REST API registration for status/monitoring
+- `src/api/handlers/` — API route handlers (status, projects, jobs, schedules, bloops)
+- `src/chat/index.ts` — `ChatBridge`, conversational orchestrator with provider-agnostic architecture
+- `src/chat/skippy.ts` — Skippy the Magnificent personality system prompt
+- `src/chat/intent.ts` — Two-tier intent parser (slash commands + LLM classification)
+- `src/chat/providers/` — Terminal, Telegram, Slack, WebSocket chat providers
 
 **Storage:** SQLite via better-sqlite3 + sqlite-vec extension. All data in `~/.beercan/orchestrator.db`. Per-project config in `~/.beercan/projects/<slug>/`. Structured logs in `~/.beercan/beercan.log`.
 
@@ -90,6 +100,35 @@ Pre-flight analysis step that dynamically composes the right team for any goal. 
 - **Role sources:** 5 built-in + 9 templates + fully custom roles with LLM-generated prompts.
 - **Config:** `BEERCAN_GATEKEEPER_MODEL` env var (default: `claude-haiku-4-5-20251001`).
 
+## Status API
+
+REST API served by the daemon's HTTP server (port 3939) or standalone via `beercan serve`. Registered via `registerStatusApi()` on the existing `WebhookSource`.
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /api/status` | System overview: project count, bloop stats, job stats, uptime |
+| `GET /api/projects` | All projects with bloop count summaries + token usage |
+| `GET /api/projects/:slug` | Single project detail with recent bloops |
+| `GET /api/projects/:slug/bloops` | Project bloops (optional `?status=` filter) |
+| `GET /api/jobs` | Job queue stats + recent jobs (optional `?status=`, `?limit=`) |
+| `GET /api/schedules` | All schedules (optional `?project=` filter) |
+| `GET /api/bloops/recent` | Recent bloops across all projects (`?limit=`) |
+| `GET /api/bloops/:id` | Single bloop detail (supports partial ID match) |
+| `POST /api/bloops` | Submit a new bloop (enqueue via job queue) |
+| `DELETE /api/jobs/:id` | Cancel a pending or running job |
+
+**Authentication:** Set `BEERCAN_API_KEY` env var to require `Authorization: Bearer <key>` on all endpoints (except `/api/health`). Rate limiting enforced per-IP via `BEERCAN_WEBHOOK_RATE_LIMIT`.
+
+**Task submission via API:**
+```bash
+curl -X POST http://localhost:3939/api/bloops \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $BEERCAN_API_KEY" \
+  -d '{"projectSlug": "my-project", "goal": "Analyze test coverage"}'
+```
+
+Status page at `beercan-site/status.html` consumes these endpoints.
+
 ## Job Queue
 
 SQLite-backed job queue with concurrency semaphore. Scheduler and event triggers route through the queue instead of fire-and-forget.
@@ -97,7 +136,33 @@ SQLite-backed job queue with concurrency semaphore. Scheduler and event triggers
 - **Concurrency:** `BEERCAN_MAX_CONCURRENT` (default 2) — max simultaneous bloop executions
 - **Priority:** higher priority jobs execute first, FIFO within same priority
 - **Direct vs queued:** `engine.runBloop()` executes directly (CLI), `engine.enqueueBloop()` goes through queue (scheduler/triggers)
+- **Cancellation:** `engine.getJobQueue().cancelJob(id)` — cancels pending jobs immediately, aborts running jobs via AbortController
+- **Crash recovery:** On startup, stale "running" jobs/bloops from crashed processes are automatically marked as failed
+- **Timeout enforcement:** `BEERCAN_BLOOP_TIMEOUT_MS` (default 10min) enforced via AbortController — kills stuck bloops
 - **Graceful shutdown:** `drain()` waits for all running + pending jobs
+
+## Conversational Interface
+
+Provider-agnostic chat layer for interacting with BeerCan via natural language.
+
+**Architecture:** `ChatBridge` receives messages from any `ChatProvider`, parses intent (slash commands + LLM), executes engine actions, and streams results back.
+
+**Providers:**
+- **Terminal** — `beercan chat [project]` — interactive REPL with colored output
+- **Telegram** — set `BEERCAN_TELEGRAM_TOKEN` — bot auto-starts in daemon mode (requires `telegraf`)
+- **Slack** — set `BEERCAN_SLACK_TOKEN` + `BEERCAN_SLACK_SIGNING_SECRET` — auto-starts in daemon (requires `@slack/bolt`)
+- **WebSocket** — generic ws server on port 3940 for custom integrations (requires `ws`)
+
+**Slash commands:** `/run <project> <goal>`, `/status`, `/projects`, `/history [project]`, `/result <id>`, `/cancel <id>`, `/help`
+
+**Natural language:** Falls back to Haiku LLM call for intent classification — "analyze the test coverage" → run_bloop.
+
+**Key files:**
+- `src/chat/index.ts` — `ChatBridge`, main orchestrator
+- `src/chat/types.ts` — `ChatProvider` interface, `ChatMessage`, `ChatIntent`
+- `src/chat/intent.ts` — slash command parsing + LLM intent classification
+- `src/chat/formatter.ts` — BloopEvent/result/status formatting
+- `src/chat/providers/` — terminal, telegram, slack, websocket implementations
 
 ## Tool System
 
@@ -161,12 +226,12 @@ beercan jobs                            # Job queue status
 ## Testing
 
 ```bash
-npm test                    # 104 unit tests (~2s)
+npm test                    # 116 unit tests (~2s)
 npm run test:integration    # 4 API integration tests (~2min, needs ANTHROPIC_API_KEY)
 npm run test:all            # Everything
 ```
 
-- **Unit tests** (`tests/`): database, memory, tools, web tools, job queue, gatekeeper, roles, decision extraction
+- **Unit tests** (`tests/`): database, memory, tools, web tools, job queue, gatekeeper, roles, decision extraction, API
 - **Integration tests** (`tests/integration.test.ts`): write utility, summarize CSV, web research, cross-bloop memory
 
 ## Code Conventions
@@ -197,3 +262,10 @@ Requires `ANTHROPIC_API_KEY` in `.env`. Optional env vars:
 | `BEERCAN_WEBHOOK_MAX_BODY_SIZE` | `1048576` (1MB) | Max webhook body size |
 | `CLOUDFLARE_API_TOKEN` | — | For Cloudflare Browser Rendering |
 | `CLOUDFLARE_ACCOUNT_ID` | — | For Cloudflare Browser Rendering |
+| `BEERCAN_API_KEY` | — | Bearer token for API authentication |
+| `BEERCAN_NOTIFY_ON_COMPLETE` | `true` | Desktop notification on bloop completion |
+| `BEERCAN_NOTIFY_WEBHOOK_URL` | — | POST bloop results to this URL |
+| `BEERCAN_TELEGRAM_TOKEN` | — | Telegram bot token (enables chat in daemon) |
+| `BEERCAN_SLACK_TOKEN` | — | Slack bot token |
+| `BEERCAN_SLACK_SIGNING_SECRET` | — | Slack signing secret |
+| `BEERCAN_SLACK_APP_TOKEN` | — | Slack app token (socket mode) |

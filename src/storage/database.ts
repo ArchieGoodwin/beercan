@@ -619,6 +619,65 @@ export class BeerCanDB {
     return row.cnt > 0;
   }
 
+  // ── Recovery ────────────────────────────────────────────
+
+  /** Recover jobs and bloops stuck as 'running' from a previous crash. */
+  recoverStaleJobs(): { jobs: number; bloops: number } {
+    const now = new Date().toISOString();
+    const jobResult = this.db.prepare(
+      `UPDATE job_queue SET status = 'failed', error = 'Process crashed — recovered on startup', completed_at = ? WHERE status = 'running'`
+    ).run(now);
+    const bloopResult = this.db.prepare(
+      `UPDATE loops SET status = 'failed', result = '{"error":"Process crashed — recovered on startup"}', updated_at = ?, completed_at = ? WHERE status = 'running'`
+    ).run(now, now);
+    return { jobs: jobResult.changes, bloops: bloopResult.changes };
+  }
+
+  getJob(id: string): Job | null {
+    const row = this.db.prepare("SELECT * FROM job_queue WHERE id = ?").get(id) as any;
+    return row ? this.rowToJob(row) : null;
+  }
+
+  // ── Aggregate Queries ───────────────────────────────────
+
+  getBloopStats(): { running: number; completed: number; failed: number; total: number } {
+    const rows = this.db.prepare(
+      "SELECT status, COUNT(*) as cnt FROM loops GROUP BY status"
+    ).all() as Array<{ status: string; cnt: number }>;
+    const stats = { running: 0, completed: 0, failed: 0, total: 0 };
+    for (const row of rows) {
+      if (row.status in stats) (stats as any)[row.status] = row.cnt;
+      stats.total += row.cnt;
+    }
+    return stats;
+  }
+
+  getProjectBloopStats(projectId: string): { running: number; completed: number; failed: number; total: number; totalTokens: number } {
+    const rows = this.db.prepare(
+      "SELECT status, COUNT(*) as cnt, SUM(tokens_used) as tokens FROM loops WHERE project_id = ? GROUP BY status"
+    ).all(projectId) as Array<{ status: string; cnt: number; tokens: number }>;
+    const stats = { running: 0, completed: 0, failed: 0, total: 0, totalTokens: 0 };
+    for (const row of rows) {
+      if (row.status in stats) (stats as any)[row.status] = row.cnt;
+      stats.total += row.cnt;
+      stats.totalTokens += row.tokens ?? 0;
+    }
+    return stats;
+  }
+
+  getRecentBloops(limit = 20, status?: string): Bloop[] {
+    let query = "SELECT * FROM loops";
+    const params: any[] = [];
+    if (status) {
+      query += " WHERE status = ?";
+      params.push(status);
+    }
+    query += " ORDER BY created_at DESC LIMIT ?";
+    params.push(limit);
+    const rows = this.db.prepare(query).all(...params) as any[];
+    return rows.map((row) => this.rowToBloop(row));
+  }
+
   // ── Job Queue ────────────────────────────────────────────
 
   createJob(job: Job): void {

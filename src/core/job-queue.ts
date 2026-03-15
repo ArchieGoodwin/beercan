@@ -22,7 +22,7 @@ export interface Job {
   goal: string;
   team: string;
   priority: number;
-  status: "pending" | "running" | "completed" | "failed" | "timeout";
+  status: "pending" | "running" | "completed" | "failed" | "timeout" | "cancelled";
   source: string;
   sourceId: string | null;
   extraContext: string | null;
@@ -42,9 +42,10 @@ export interface JobStats {
 
 export class JobQueue {
   private running = new Map<string, Promise<void>>();
+  private abortControllers = new Map<string, AbortController>();
   private maxConcurrent: number;
   private db: BeerCanDB;
-  private executor: ((opts: { projectSlug: string; goal: string; team: string; extraContext?: string }) => Promise<{ id: string; status: string }>) | null = null;
+  private executor: ((opts: { projectSlug: string; goal: string; team: string; extraContext?: string; signal?: AbortSignal }) => Promise<{ id: string; status: string }>) | null = null;
 
   constructor(db: BeerCanDB, maxConcurrent: number) {
     this.db = db;
@@ -52,7 +53,7 @@ export class JobQueue {
   }
 
   /** Set the bloop executor (called after engine is fully initialized) */
-  setExecutor(fn: (opts: { projectSlug: string; goal: string; team: string; extraContext?: string }) => Promise<{ id: string; status: string }>): void {
+  setExecutor(fn: (opts: { projectSlug: string; goal: string; team: string; extraContext?: string; signal?: AbortSignal }) => Promise<{ id: string; status: string }>): void {
     this.executor = fn;
   }
 
@@ -117,6 +118,8 @@ export class JobQueue {
 
   private async executeJob(job: Job): Promise<void> {
     const log = getLogger();
+    const controller = new AbortController();
+    this.abortControllers.set(job.id, controller);
 
     try {
       const result = await this.executor!({
@@ -124,6 +127,7 @@ export class JobQueue {
         goal: job.goal,
         team: job.team,
         extraContext: job.extraContext ?? undefined,
+        signal: controller.signal,
       });
 
       this.db.updateJob(job.id, {
@@ -143,7 +147,41 @@ export class JobQueue {
       });
 
       log.error("queue", `Job failed: ${err.message}`, { jobId: job.id });
+    } finally {
+      this.abortControllers.delete(job.id);
     }
+  }
+
+  /** Cancel a pending or running job. */
+  cancelJob(jobId: string): { cancelled: boolean; status?: string; reason?: string } {
+    const log = getLogger();
+    const job = this.db.getJob(jobId);
+
+    if (!job) {
+      return { cancelled: false, reason: "Job not found" };
+    }
+
+    if (job.status === "completed" || job.status === "failed" || job.status === "timeout" || job.status === "cancelled") {
+      return { cancelled: false, status: job.status, reason: `Job already ${job.status}` };
+    }
+
+    if (job.status === "pending") {
+      this.db.updateJob(jobId, { status: "cancelled", error: "Cancelled by user", completedAt: new Date().toISOString() });
+      log.info("queue", `Job cancelled (pending): ${jobId}`);
+      return { cancelled: true, status: "cancelled" };
+    }
+
+    if (job.status === "running") {
+      const controller = this.abortControllers.get(jobId);
+      if (controller) {
+        controller.abort(new Error("Cancelled by user"));
+      }
+      this.db.updateJob(jobId, { status: "cancelled", error: "Cancelled by user", completedAt: new Date().toISOString() });
+      log.info("queue", `Job cancelled (running): ${jobId}`);
+      return { cancelled: true, status: "cancelled" };
+    }
+
+    return { cancelled: false, reason: `Unexpected job status: ${job.status}` };
   }
 
   /** Get queue statistics. */

@@ -1,0 +1,1092 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BeerCan — System Status</title>
+  <meta name="description" content="Live system status dashboard for your BeerCan autonomous agent instance.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --gold: #F59E0B;
+      --gold-light: #FBBF24;
+      --gold-dark: #D97706;
+      --amber: #F97316;
+      --bg-dark: #0A0A0F;
+      --bg-card: #12121A;
+      --bg-card-hover: #1A1A25;
+      --text-primary: #F1F1F6;
+      --text-secondary: #9494A8;
+      --text-dim: #5A5A72;
+      --accent-blue: #3B82F6;
+      --accent-green: #10B981;
+      --accent-red: #EF4444;
+      --border: #2A2A3A;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: 'Space Grotesk', system-ui, sans-serif;
+      background: var(--bg-dark);
+      color: var(--text-primary);
+      line-height: 1.6;
+      overflow-x: hidden;
+    }
+
+    code, .mono { font-family: 'JetBrains Mono', monospace; }
+
+    /* ── Animated background ─────────────────────────── */
+    .bg-grid {
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+      background-image:
+        linear-gradient(rgba(245, 158, 11, 0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(245, 158, 11, 0.03) 1px, transparent 1px);
+      background-size: 60px 60px;
+      pointer-events: none;
+    }
+
+    .bg-glow {
+      position: fixed;
+      top: -200px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 800px;
+      height: 600px;
+      background: radial-gradient(ellipse, rgba(245, 158, 11, 0.08) 0%, transparent 70%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* ── Nav ──────────────────────────────────────────── */
+    nav {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 100;
+      padding: 1rem 2rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      backdrop-filter: blur(20px);
+      background: rgba(10, 10, 15, 0.8);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .nav-logo {
+      font-size: 1.4rem;
+      font-weight: 700;
+      color: var(--gold);
+      text-decoration: none;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .nav-logo .can-icon { font-size: 1.6rem; }
+
+    .nav-links { display: flex; gap: 2rem; align-items: center; }
+    .nav-links a {
+      color: var(--text-secondary);
+      text-decoration: none;
+      font-size: 0.9rem;
+      font-weight: 500;
+      transition: color 0.2s;
+    }
+    .nav-links a:hover { color: var(--gold-light); }
+    .nav-links a.active { color: var(--gold); }
+
+    .btn-github {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.5rem 1rem;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text-primary);
+      text-decoration: none;
+      font-size: 0.85rem;
+      font-weight: 500;
+      transition: all 0.2s;
+    }
+    .btn-github:hover { border-color: var(--gold); background: var(--bg-card-hover); }
+
+    /* ── Sections ─────────────────────────────────────── */
+    section { position: relative; z-index: 1; }
+
+    .container {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 0 2rem;
+    }
+
+    .section-label {
+      font-size: 0.8rem;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--gold);
+      margin-bottom: 0.75rem;
+    }
+
+    .section-title {
+      font-size: clamp(2rem, 4vw, 2.8rem);
+      font-weight: 700;
+      margin-bottom: 1rem;
+      letter-spacing: -0.02em;
+    }
+
+    .section-desc {
+      color: var(--text-secondary);
+      max-width: 580px;
+      font-size: 1.05rem;
+    }
+
+    /* ── Config Bar ──────────────────────────────────── */
+    .config-bar {
+      position: relative;
+      z-index: 1;
+      margin-top: calc(60px + 1rem);
+      padding: 1rem 0;
+    }
+
+    .config-bar-inner {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      padding: 0.75rem 1.25rem;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      flex-wrap: wrap;
+    }
+
+    .config-bar-inner label {
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: var(--text-secondary);
+      white-space: nowrap;
+    }
+
+    .config-bar-inner input {
+      flex: 1;
+      min-width: 200px;
+      padding: 0.4rem 0.75rem;
+      background: var(--bg-dark);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--gold-light);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.82rem;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    .config-bar-inner input:focus {
+      border-color: var(--gold);
+    }
+
+    .connection-status {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      font-size: 0.8rem;
+      font-weight: 500;
+      white-space: nowrap;
+    }
+
+    .connection-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--text-dim);
+      transition: background 0.3s;
+    }
+
+    .connection-dot.connected { background: var(--accent-green); box-shadow: 0 0 6px rgba(16, 185, 129, 0.5); }
+    .connection-dot.disconnected { background: var(--accent-red); box-shadow: 0 0 6px rgba(239, 68, 68, 0.5); }
+
+    .connection-label { color: var(--text-secondary); }
+    .connection-label.connected { color: var(--accent-green); }
+    .connection-label.disconnected { color: var(--accent-red); }
+
+    .auto-refresh-badge {
+      font-size: 0.7rem;
+      color: var(--text-dim);
+      padding: 0.25rem 0.6rem;
+      border: 1px solid var(--border);
+      border-radius: 100px;
+      white-space: nowrap;
+    }
+
+    /* ── System Overview ─────────────────────────────── */
+    .system-overview {
+      padding: 3rem 0 2rem;
+    }
+
+    .stat-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 1rem;
+      margin-top: 2rem;
+    }
+
+    .stat-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 1.5rem;
+      transition: all 0.3s;
+    }
+
+    .stat-card:hover {
+      border-color: rgba(245, 158, 11, 0.3);
+      transform: translateY(-4px);
+      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
+    }
+
+    .stat-card-label {
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 0.5rem;
+    }
+
+    .stat-card-value {
+      font-size: 2.2rem;
+      font-weight: 700;
+      line-height: 1.2;
+    }
+
+    .stat-card-sub {
+      font-size: 0.8rem;
+      color: var(--text-dim);
+      margin-top: 0.25rem;
+    }
+
+    .stat-card-value.pulse {
+      animation: statPulse 2s ease-in-out infinite;
+    }
+
+    @keyframes statPulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.6; }
+    }
+
+    /* ── Projects Section ────────────────────────────── */
+    .projects-section {
+      padding: 3rem 0;
+    }
+
+    .project-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 1.5rem;
+      margin-top: 2rem;
+    }
+
+    .project-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 1.5rem;
+      transition: all 0.3s;
+    }
+
+    .project-card:hover {
+      border-color: rgba(245, 158, 11, 0.3);
+      transform: translateY(-4px);
+      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
+    }
+
+    .project-name {
+      font-size: 1.15rem;
+      font-weight: 600;
+      margin-bottom: 0.2rem;
+    }
+
+    .project-slug {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.78rem;
+      color: var(--text-dim);
+      margin-bottom: 0.75rem;
+    }
+
+    .project-workdir {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.75rem;
+      color: var(--text-secondary);
+      background: var(--bg-dark);
+      padding: 0.3rem 0.6rem;
+      border-radius: 4px;
+      margin-bottom: 0.75rem;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .project-stats {
+      display: flex;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+      margin-bottom: 0.5rem;
+    }
+
+    .project-stat {
+      font-size: 0.8rem;
+      font-weight: 500;
+      display: flex;
+      align-items: center;
+      gap: 0.3rem;
+    }
+
+    .project-stat .dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+    }
+
+    .project-stat .dot.green { background: var(--accent-green); }
+    .project-stat .dot.red { background: var(--accent-red); }
+    .project-stat .dot.blue { background: var(--accent-blue); }
+
+    .project-stat.green { color: var(--accent-green); }
+    .project-stat.red { color: var(--accent-red); }
+    .project-stat.blue { color: var(--accent-blue); }
+
+    .project-tokens {
+      font-size: 0.78rem;
+      color: var(--text-dim);
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    /* ── Job Queue Section ───────────────────────────── */
+    .jobs-section {
+      padding: 3rem 0;
+    }
+
+    .jobs-table-wrap {
+      margin-top: 2rem;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      overflow: hidden;
+    }
+
+    .jobs-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    .jobs-table th {
+      text-align: left;
+      padding: 0.85rem 1.25rem;
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      border-bottom: 1px solid var(--border);
+      background: rgba(18, 18, 26, 0.8);
+    }
+
+    .jobs-table td {
+      padding: 0.75rem 1.25rem;
+      font-size: 0.85rem;
+      color: var(--text-secondary);
+      border-bottom: 1px solid rgba(42, 42, 58, 0.4);
+      vertical-align: middle;
+    }
+
+    .jobs-table tr:last-child td { border-bottom: none; }
+
+    .jobs-table tr:hover td { background: rgba(26, 26, 37, 0.5); }
+
+    .status-badge {
+      display: inline-block;
+      padding: 0.2rem 0.6rem;
+      border-radius: 100px;
+      font-size: 0.72rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+
+    .status-badge.pending {
+      background: rgba(245, 158, 11, 0.15);
+      color: var(--gold-light);
+      border: 1px solid rgba(245, 158, 11, 0.3);
+    }
+
+    .status-badge.running {
+      background: rgba(59, 130, 246, 0.15);
+      color: #60A5FA;
+      border: 1px solid rgba(59, 130, 246, 0.3);
+    }
+
+    .status-badge.completed {
+      background: rgba(16, 185, 129, 0.15);
+      color: #34D399;
+      border: 1px solid rgba(16, 185, 129, 0.3);
+    }
+
+    .status-badge.failed {
+      background: rgba(239, 68, 68, 0.15);
+      color: #F87171;
+      border: 1px solid rgba(239, 68, 68, 0.3);
+    }
+
+    .goal-text {
+      max-width: 260px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: var(--text-primary);
+    }
+
+    .source-badge {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.72rem;
+      color: var(--text-dim);
+    }
+
+    .timestamp {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.72rem;
+      color: var(--text-dim);
+      white-space: nowrap;
+    }
+
+    /* ── Active Bloops Section ───────────────────────── */
+    .active-bloops-section {
+      padding: 3rem 0;
+    }
+
+    .active-bloops-section.hidden { display: none; }
+
+    .active-bloop-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 1.5rem;
+      margin-top: 2rem;
+    }
+
+    .active-bloop-card {
+      background: var(--bg-card);
+      border: 1px solid var(--gold-dark);
+      border-radius: 14px;
+      padding: 1.5rem;
+      animation: bloopPulse 3s ease-in-out infinite;
+      transition: transform 0.3s, box-shadow 0.3s;
+    }
+
+    .active-bloop-card:hover {
+      transform: translateY(-4px);
+      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
+    }
+
+    @keyframes bloopPulse {
+      0%, 100% { border-color: var(--gold-dark); box-shadow: 0 0 0 rgba(245, 158, 11, 0); }
+      50% { border-color: var(--gold); box-shadow: 0 0 20px rgba(245, 158, 11, 0.1); }
+    }
+
+    .active-bloop-goal {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-bottom: 0.5rem;
+      line-height: 1.4;
+    }
+
+    .active-bloop-project {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.78rem;
+      color: var(--accent-blue);
+      margin-bottom: 0.75rem;
+    }
+
+    .active-bloop-meta {
+      display: flex;
+      gap: 1rem;
+      flex-wrap: wrap;
+    }
+
+    .active-bloop-meta span {
+      font-size: 0.8rem;
+      color: var(--text-secondary);
+    }
+
+    .active-bloop-meta span strong {
+      color: var(--text-primary);
+      font-weight: 600;
+    }
+
+    /* ── Recent History Section ──────────────────────── */
+    .recent-section {
+      padding: 3rem 0 4rem;
+    }
+
+    .history-list {
+      margin-top: 2rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .history-item {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      padding: 0.75rem 1.25rem;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      transition: all 0.2s;
+    }
+
+    .history-item:hover {
+      border-color: rgba(245, 158, 11, 0.3);
+      background: var(--bg-card-hover);
+    }
+
+    .history-goal {
+      flex: 1;
+      font-size: 0.88rem;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: var(--text-primary);
+      min-width: 0;
+    }
+
+    .history-project {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.72rem;
+      color: var(--text-dim);
+      white-space: nowrap;
+    }
+
+    .history-tokens {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.72rem;
+      color: var(--text-secondary);
+      white-space: nowrap;
+    }
+
+    .history-duration {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.72rem;
+      color: var(--text-dim);
+      white-space: nowrap;
+    }
+
+    /* ── Empty States ────────────────────────────────── */
+    .empty-state {
+      text-align: center;
+      padding: 3rem 2rem;
+      color: var(--text-dim);
+      font-size: 0.92rem;
+      font-style: italic;
+    }
+
+    /* ── Footer ──────────────────────────────────────── */
+    footer {
+      padding: 2rem;
+      text-align: center;
+      border-top: 1px solid var(--border);
+      color: var(--text-dim);
+      font-size: 0.8rem;
+    }
+
+    footer a { color: var(--text-secondary); text-decoration: none; }
+    footer a:hover { color: var(--gold); }
+
+    /* ── Responsive ──────────────────────────────────── */
+    @media (max-width: 768px) {
+      nav { padding: 0.75rem 1rem; }
+      .nav-links { gap: 1rem; }
+      .nav-links a:not(.btn-github):not(.active) { display: none; }
+      .config-bar-inner { flex-direction: column; align-items: stretch; }
+      .stat-grid { grid-template-columns: repeat(2, 1fr); }
+      .project-grid { grid-template-columns: 1fr; }
+      .active-bloop-grid { grid-template-columns: 1fr; }
+
+      /* Stack table on mobile */
+      .jobs-table thead { display: none; }
+      .jobs-table, .jobs-table tbody, .jobs-table tr, .jobs-table td {
+        display: block;
+        width: 100%;
+      }
+      .jobs-table tr {
+        padding: 1rem 1.25rem;
+        border-bottom: 1px solid rgba(42, 42, 58, 0.4);
+      }
+      .jobs-table td {
+        padding: 0.2rem 0;
+        border-bottom: none;
+      }
+      .jobs-table td::before {
+        content: attr(data-label);
+        font-size: 0.7rem;
+        font-weight: 600;
+        color: var(--text-dim);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        display: block;
+        margin-bottom: 0.15rem;
+      }
+      .goal-text { max-width: 100%; white-space: normal; }
+
+      .history-item {
+        flex-wrap: wrap;
+        gap: 0.5rem;
+      }
+      .history-goal { flex-basis: 100%; }
+    }
+
+    @media (max-width: 480px) {
+      .stat-grid { grid-template-columns: 1fr; }
+    }
+
+    /* ── Animations ──────────────────────────────────── */
+    .fade-in {
+      opacity: 0;
+      transform: translateY(20px);
+      transition: opacity 0.6s ease, transform 0.6s ease;
+    }
+    .fade-in.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  </style>
+</head>
+<body>
+
+<div class="bg-grid"></div>
+<div class="bg-glow"></div>
+
+<!-- ── Nav ──────────────────────────────────────────────── -->
+<nav>
+  <a href="index.html" class="nav-logo">
+    <span class="can-icon">🍺</span>
+    <span>BeerCan</span>
+  </a>
+  <div class="nav-links">
+    <a href="index.html">Home</a>
+    <a href="status.html" class="active">Status</a>
+    <a href="https://github.com/ArchieGoodwin/beercan" class="btn-github">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+      GitHub
+    </a>
+  </div>
+</nav>
+
+<!-- ── Config Bar ──────────────────────────────────────── -->
+<section class="config-bar">
+  <div class="container">
+    <div class="config-bar-inner">
+      <label for="api-url">API URL</label>
+      <input type="text" id="api-url" placeholder="http://localhost:3939">
+      <div class="connection-status">
+        <div class="connection-dot" id="connection-dot"></div>
+        <span class="connection-label" id="connection-label">Connecting...</span>
+      </div>
+      <span class="auto-refresh-badge">Auto-refresh: 10s</span>
+    </div>
+  </div>
+</section>
+
+<!-- ── System Overview ─────────────────────────────────── -->
+<section class="system-overview">
+  <div class="container">
+    <div class="section-label">System Overview</div>
+    <h2 class="section-title">Dashboard</h2>
+
+    <div class="stat-grid">
+      <div class="stat-card fade-in">
+        <div class="stat-card-label">Projects</div>
+        <div class="stat-card-value" id="stat-projects">--</div>
+        <div class="stat-card-sub" id="stat-projects-sub">total projects</div>
+      </div>
+      <div class="stat-card fade-in">
+        <div class="stat-card-label">Active Bloops</div>
+        <div class="stat-card-value" id="stat-active">--</div>
+        <div class="stat-card-sub" id="stat-active-sub">currently running</div>
+      </div>
+      <div class="stat-card fade-in">
+        <div class="stat-card-label">Queue</div>
+        <div class="stat-card-value" id="stat-queue">--</div>
+        <div class="stat-card-sub" id="stat-queue-sub">pending / running</div>
+      </div>
+      <div class="stat-card fade-in">
+        <div class="stat-card-label">Uptime</div>
+        <div class="stat-card-value" id="stat-uptime">--</div>
+        <div class="stat-card-sub" id="stat-uptime-sub">since last restart</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Projects ────────────────────────────────────────── -->
+<section class="projects-section">
+  <div class="container">
+    <div class="section-label">Projects</div>
+    <h2 class="section-title">Sandboxed workspaces</h2>
+    <p class="section-desc">Each project is an isolated context with its own bloops, memory, and configuration.</p>
+
+    <div id="projects-container">
+      <div class="empty-state">No projects yet. Create one with <code>beercan init &lt;name&gt;</code></div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Job Queue ───────────────────────────────────────── -->
+<section class="jobs-section">
+  <div class="container">
+    <div class="section-label">Job Queue</div>
+    <h2 class="section-title">Queued work</h2>
+    <p class="section-desc">Jobs waiting to be processed, currently running, and recently completed.</p>
+
+    <div id="jobs-container">
+      <div class="empty-state">No jobs in queue. Trigger a bloop to see it here.</div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Active Bloops ───────────────────────────────────── -->
+<section class="active-bloops-section hidden" id="active-bloops-section">
+  <div class="container">
+    <div class="section-label">Active Bloops</div>
+    <h2 class="section-title">Currently executing</h2>
+
+    <div class="active-bloop-grid" id="active-bloops-container">
+    </div>
+  </div>
+</section>
+
+<!-- ── Recent History ──────────────────────────────────── -->
+<section class="recent-section">
+  <div class="container">
+    <div class="section-label">Recent History</div>
+    <h2 class="section-title">Latest bloops</h2>
+    <p class="section-desc">The last 20 bloop executions across all projects.</p>
+
+    <div id="history-container">
+      <div class="empty-state">No bloops yet. Run one with <code>beercan run &lt;project&gt; &lt;goal&gt;</code></div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Footer ──────────────────────────────────────────── -->
+<footer>
+  <p>
+    Built with questionable judgment and excellent taste &bull;
+    <a href="https://beercan.ai">beercan.ai</a> &bull;
+    <a href="https://beercan.run">beercan.run</a> &bull;
+    <a href="https://github.com/ArchieGoodwin/beercan">GitHub</a>
+  </p>
+  <p style="margin-top: 0.5rem; font-size: 0.75rem;">
+    &copy; 2026 BeerCan Contributors &bull; MIT License &bull; No actual beer was harmed in the making of this framework
+  </p>
+</footer>
+
+<!-- ── JavaScript ──────────────────────────────────────── -->
+<script>
+  // ── Scroll animations ──────────────────────────────
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach((entry) => {
+      if (entry.isIntersecting) {
+        entry.target.classList.add('visible');
+      }
+    });
+  }, { threshold: 0.1 });
+
+  document.querySelectorAll('.fade-in').forEach((el) => observer.observe(el));
+
+  // ── State ──────────────────────────────────────────
+  const STORAGE_KEY = 'beercan-api-url';
+  const DEFAULT_URL = window.location.origin;
+  const REFRESH_INTERVAL = 10000;
+
+  let connected = false;
+  let refreshTimer = null;
+
+  // ── DOM refs ───────────────────────────────────────
+  const apiUrlInput = document.getElementById('api-url');
+  const connectionDot = document.getElementById('connection-dot');
+  const connectionLabel = document.getElementById('connection-label');
+
+  // ── Init ───────────────────────────────────────────
+  function init() {
+    const savedUrl = localStorage.getItem(STORAGE_KEY);
+    apiUrlInput.value = savedUrl || DEFAULT_URL;
+
+    apiUrlInput.addEventListener('change', () => {
+      const url = apiUrlInput.value.trim() || DEFAULT_URL;
+      apiUrlInput.value = url;
+      localStorage.setItem(STORAGE_KEY, url);
+      fetchAll();
+    });
+
+    apiUrlInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        apiUrlInput.blur();
+        const url = apiUrlInput.value.trim() || DEFAULT_URL;
+        apiUrlInput.value = url;
+        localStorage.setItem(STORAGE_KEY, url);
+        fetchAll();
+      }
+    });
+
+    fetchAll();
+    refreshTimer = setInterval(fetchAll, REFRESH_INTERVAL);
+  }
+
+  // ── Helpers ────────────────────────────────────────
+  function getApiUrl() {
+    return (apiUrlInput.value.trim() || DEFAULT_URL).replace(/\/+$/, '');
+  }
+
+  function formatNumber(n) {
+    if (n == null) return '--';
+    return Number(n).toLocaleString();
+  }
+
+  function formatUptime(seconds) {
+    if (seconds == null) return '--';
+    const s = Math.floor(seconds);
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    if (h > 0) return h + 'h ' + m + 'm';
+    return m + 'm ' + (s % 60) + 's';
+  }
+
+  function formatDuration(startIso, endIso) {
+    if (!startIso) return '--';
+    const start = new Date(startIso).getTime();
+    const end = endIso ? new Date(endIso).getTime() : Date.now();
+    const diffS = Math.max(0, Math.floor((end - start) / 1000));
+    const h = Math.floor(diffS / 3600);
+    const m = Math.floor((diffS % 3600) / 60);
+    const s = diffS % 60;
+    if (h > 0) return h + 'h ' + m + 'm ' + s + 's';
+    if (m > 0) return m + 'm ' + s + 's';
+    return s + 's';
+  }
+
+  function formatTimestamp(iso) {
+    if (!iso) return '--';
+    const d = new Date(iso);
+    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) +
+      ' ' + d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+  }
+
+  function truncateGoal(goal, max) {
+    if (!goal) return '';
+    if (goal.length <= max) return goal;
+    return goal.substring(0, max) + '...';
+  }
+
+  function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text || '';
+    return div.innerHTML;
+  }
+
+  function setConnected(state) {
+    connected = state;
+    connectionDot.className = 'connection-dot ' + (state ? 'connected' : 'disconnected');
+    connectionLabel.className = 'connection-label ' + (state ? 'connected' : 'disconnected');
+    connectionLabel.textContent = state ? 'Connected' : 'Disconnected';
+  }
+
+  // ── Fetch all data ─────────────────────────────────
+  async function fetchAll() {
+    const apiUrl = getApiUrl();
+
+    try {
+      const [statusRes, projectsRes, jobsRes, recentRes] = await Promise.all([
+        fetch(apiUrl + '/api/status').then(r => r.json()),
+        fetch(apiUrl + '/api/projects').then(r => r.json()),
+        fetch(apiUrl + '/api/jobs').then(r => r.json()),
+        fetch(apiUrl + '/api/bloops/recent').then(r => r.json()),
+      ]);
+
+      setConnected(true);
+      renderOverview(statusRes, jobsRes);
+      renderProjects(projectsRes);
+      renderJobs(jobsRes);
+      renderActiveBloops(recentRes);
+      renderHistory(recentRes);
+    } catch (err) {
+      setConnected(false);
+    }
+  }
+
+  // ── Render: System Overview ────────────────────────
+  function renderOverview(status, jobs) {
+    const projectCount = status.projects ? status.projects.total : 0;
+    const runningBloops = status.bloops ? status.bloops.running : 0;
+    const pendingJobs = status.jobs ? status.jobs.pending : 0;
+    const runningJobs = status.jobs ? status.jobs.running : 0;
+    const uptime = status.uptime;
+
+    document.getElementById('stat-projects').textContent = formatNumber(projectCount);
+    document.getElementById('stat-projects-sub').textContent = projectCount === 1 ? '1 project' : projectCount + ' total projects';
+
+    const activeEl = document.getElementById('stat-active');
+    activeEl.textContent = formatNumber(runningBloops);
+    if (runningBloops > 0) {
+      activeEl.classList.add('pulse');
+    } else {
+      activeEl.classList.remove('pulse');
+    }
+    document.getElementById('stat-active-sub').textContent = 'currently running';
+
+    document.getElementById('stat-queue').textContent = pendingJobs + ' / ' + runningJobs;
+    document.getElementById('stat-queue-sub').textContent = 'pending / running';
+
+    document.getElementById('stat-uptime').textContent = formatUptime(uptime);
+    document.getElementById('stat-uptime-sub').textContent = 'since last restart';
+  }
+
+  // ── Render: Projects ──────────────────────────────
+  function renderProjects(data) {
+    const container = document.getElementById('projects-container');
+    const projects = data.projects || [];
+
+    if (projects.length === 0) {
+      container.innerHTML = '<div class="empty-state">No projects yet. Create one with <code>beercan init &lt;name&gt;</code></div>';
+      return;
+    }
+
+    let html = '<div class="project-grid">';
+    for (const p of projects) {
+      const bloops = p.bloops || {};
+      html += '<div class="project-card fade-in visible">';
+      html += '<div class="project-name">' + escapeHtml(p.name || p.slug) + '</div>';
+      html += '<div class="project-slug">' + escapeHtml(p.slug) + '</div>';
+
+      if (p.workDir) {
+        html += '<div class="project-workdir">' + escapeHtml(p.workDir) + '</div>';
+      }
+
+      html += '<div class="project-stats">';
+      html += '<span class="project-stat green"><span class="dot green"></span>' + (bloops.completed || 0) + ' completed</span>';
+      html += '<span class="project-stat red"><span class="dot red"></span>' + (bloops.failed || 0) + ' failed</span>';
+      html += '<span class="project-stat blue"><span class="dot blue"></span>' + (bloops.running || 0) + ' running</span>';
+      html += '</div>';
+
+      html += '<div class="project-tokens">' + formatNumber(p.totalTokens || 0) + ' tokens</div>';
+      html += '</div>';
+    }
+    html += '</div>';
+    container.innerHTML = html;
+  }
+
+  // ── Render: Job Queue ─────────────────────────────
+  function renderJobs(data) {
+    const container = document.getElementById('jobs-container');
+    const jobs = data.jobs || [];
+
+    if (jobs.length === 0) {
+      container.innerHTML = '<div class="empty-state">No jobs in queue. Trigger a bloop to see it here.</div>';
+      return;
+    }
+
+    let html = '<div class="jobs-table-wrap"><table class="jobs-table">';
+    html += '<thead><tr>';
+    html += '<th>Status</th>';
+    html += '<th>Goal</th>';
+    html += '<th>Source</th>';
+    html += '<th>Project</th>';
+    html += '<th>Created</th>';
+    html += '</tr></thead>';
+    html += '<tbody>';
+
+    for (const job of jobs) {
+      const statusClass = (job.status || 'pending').toLowerCase();
+      html += '<tr>';
+      html += '<td data-label="Status"><span class="status-badge ' + statusClass + '">' + escapeHtml(job.status || 'unknown') + '</span></td>';
+      html += '<td data-label="Goal"><div class="goal-text">' + escapeHtml(job.goal || '') + '</div></td>';
+      html += '<td data-label="Source"><span class="source-badge">' + escapeHtml(job.source || 'manual') + '</span></td>';
+      html += '<td data-label="Project"><span class="source-badge">' + escapeHtml(job.projectSlug || '') + '</span></td>';
+      html += '<td data-label="Created"><span class="timestamp">' + formatTimestamp(job.createdAt) + '</span></td>';
+      html += '</tr>';
+    }
+
+    html += '</tbody></table></div>';
+    container.innerHTML = html;
+  }
+
+  // ── Render: Active Bloops ─────────────────────────
+  function renderActiveBloops(data) {
+    const bloops = (data.bloops || []).filter(b => b.status === 'running');
+    const section = document.getElementById('active-bloops-section');
+    const container = document.getElementById('active-bloops-container');
+
+    if (bloops.length === 0) {
+      section.classList.add('hidden');
+      return;
+    }
+
+    section.classList.remove('hidden');
+    let html = '';
+
+    for (const b of bloops) {
+      html += '<div class="active-bloop-card">';
+      html += '<div class="active-bloop-goal">' + escapeHtml(b.goal) + '</div>';
+      html += '<div class="active-bloop-project">' + escapeHtml(b.projectId || '') + '</div>';
+      html += '<div class="active-bloop-meta">';
+      html += '<span>Iterations: <strong>' + (b.iterations || 0) + '</strong></span>';
+      html += '<span>Tokens: <strong>' + formatNumber(b.tokensUsed || 0) + '</strong></span>';
+      html += '<span>Elapsed: <strong>' + formatDuration(b.createdAt, null) + '</strong></span>';
+      html += '</div>';
+      html += '</div>';
+    }
+
+    container.innerHTML = html;
+  }
+
+  // ── Render: Recent History ────────────────────────
+  function renderHistory(data) {
+    const container = document.getElementById('history-container');
+    const bloops = data.bloops || [];
+
+    if (bloops.length === 0) {
+      container.innerHTML = '<div class="empty-state">No bloops yet. Run one with <code>beercan run &lt;project&gt; &lt;goal&gt;</code></div>';
+      return;
+    }
+
+    let html = '<div class="history-list">';
+
+    for (const b of bloops) {
+      const statusClass = (b.status || 'pending').toLowerCase();
+      html += '<div class="history-item">';
+      html += '<span class="status-badge ' + statusClass + '">' + escapeHtml(b.status || 'unknown') + '</span>';
+      html += '<span class="history-goal">' + escapeHtml(b.goal || '') + '</span>';
+      html += '<span class="history-project">' + escapeHtml(b.projectId || '') + '</span>';
+      html += '<span class="history-tokens">' + formatNumber(b.tokensUsed || 0) + ' tok</span>';
+      html += '<span class="history-duration">' + formatDuration(b.createdAt, b.completedAt) + '</span>';
+      html += '</div>';
+    }
+
+    html += '</div>';
+    container.innerHTML = html;
+  }
+
+  // ── Boot ───────────────────────────────────────────
+  init();
+</script>
+
+</body>
+</html>

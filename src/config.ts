@@ -23,6 +23,9 @@ const ConfigSchema = z.object({
   logFile: z.string().optional(),
   webhookRateLimit: z.number().default(60),
   webhookMaxBodySize: z.number().default(1_048_576),
+  apiKey: z.string().optional(),
+  notifyOnComplete: z.boolean().default(true),
+  notifyWebhookUrl: z.string().url().optional(),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;
@@ -57,6 +60,11 @@ export function getConfig(): Config {
       webhookMaxBodySize: process.env.BEERCAN_WEBHOOK_MAX_BODY_SIZE
         ? parseInt(process.env.BEERCAN_WEBHOOK_MAX_BODY_SIZE)
         : undefined,
+      apiKey: process.env.BEERCAN_API_KEY,
+      notifyOnComplete: process.env.BEERCAN_NOTIFY_ON_COMPLETE
+        ? process.env.BEERCAN_NOTIFY_ON_COMPLETE !== "false"
+        : undefined,
+      notifyWebhookUrl: process.env.BEERCAN_NOTIFY_WEBHOOK_URL,
     });
   }
   return _config;
