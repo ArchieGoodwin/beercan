@@ -8,6 +8,9 @@ import { getConfig } from "./config.js";
  */
 export async function createAnthropicClient(): Promise<Anthropic> {
   const config = getConfig();
+  if (!config.anthropicApiKey) {
+    throw new Error("ANTHROPIC_API_KEY is not set. Run `beercan setup` to configure.");
+  }
   const proxyUrl = process.env.HTTPS_PROXY || process.env.HTTP_PROXY || process.env.https_proxy || process.env.http_proxy;
 
   if (proxyUrl) {

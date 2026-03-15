@@ -886,10 +886,11 @@ Do NOT rewrite everything — make focused, incremental changes.`,
 }
 
 main().catch((err) => {
-  if (err.message?.includes("anthropicApiKey") || err.message?.includes("ANTHROPIC_API_KEY")) {
+  const msg = String(err?.message ?? err);
+  if (msg.includes("anthropicApiKey") || msg.includes("ANTHROPIC_API_KEY") || msg.includes("Required")) {
     console.error(chalk.red("\nMissing API key.") + " Run " + chalk.cyan("beercan setup") + " to configure BeerCan.\n");
   } else {
-    console.error(chalk.red("Fatal:"), err.message);
+    console.error(chalk.red("Fatal:"), msg);
   }
   process.exit(1);
 });

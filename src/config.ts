@@ -18,7 +18,7 @@ loadEnv({ path: path.join(projectRoot, ".env") });
 loadEnv(); // CWD/.env
 
 const ConfigSchema = z.object({
-  anthropicApiKey: z.string().min(1),
+  anthropicApiKey: z.string().default(""),
   dataDir: z.string().default(path.join(os.homedir(), ".beercan")),
   defaultModel: z.string().default("claude-sonnet-4-6"),
   heavyModel: z.string().default("claude-opus-4-6"),
