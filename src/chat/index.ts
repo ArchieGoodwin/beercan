@@ -59,6 +59,45 @@ export class ChatBridge {
     }
   }
 
+  /** Subscribe to bloop completion events and deliver results to all chat providers. */
+  subscribeToBloopEvents(eventBus: any): void {
+    eventBus.subscribe("bloop:completed", (event: any) => {
+      this.deliverBloopResult(event.data);
+    });
+    eventBus.subscribe("bloop:failed", (event: any) => {
+      this.deliverBloopResult(event.data);
+    });
+  }
+
+  private async deliverBloopResult(data: { bloopId: string; goal: string; status: string; tokensUsed: number }): Promise<void> {
+    const bloop = this.engine.getBloop(data.bloopId);
+    if (!bloop) return;
+
+    const result = `${pick(bloop.status === "completed" ? "bloop_completed" : "bloop_failed")}\n${formatBloopResult(bloop)}`;
+
+    // Deliver to all active providers
+    for (const provider of this.providers) {
+      try {
+        // For Telegram/Slack: send to all known channels
+        // For terminal: send to "terminal" channel
+        const channelId = provider.name === "terminal" ? "terminal" : data.bloopId;
+
+        // Find the channel from context — use any channel that has this project
+        for (const [chId, ctx] of this.channelContexts) {
+          await provider.sendMessage(chId, result, { format: "markdown" });
+          break; // Send to first known channel
+        }
+
+        // If no channel context, try a default broadcast
+        if (this.channelContexts.size === 0 && provider.name === "terminal") {
+          await provider.sendMessage("terminal", result, { format: "markdown" });
+        }
+      } catch {
+        // Silent — provider might not be connected
+      }
+    }
+  }
+
   /** Start all registered providers. */
   async start(): Promise<void> {
     for (const provider of this.providers) {
@@ -115,6 +154,12 @@ export class ChatBridge {
           break;
         case "switch_project":
           await this.handleSwitchProject(provider, msg, intent);
+          break;
+        case "add_schedule":
+          await this.handleAddSchedule(provider, msg, intent);
+          break;
+        case "list_schedules":
+          await this.handleListSchedules(provider, msg, intent);
           break;
         case "help":
           await this.handleHelp(provider, msg);
@@ -409,6 +454,60 @@ export class ChatBridge {
       text = `\`[${ctx.lastProjectSlug}]\` ${text}`;
     }
     return provider.sendMessage(msg.channelId, text, { ...opts, replyTo: opts?.replyTo ?? msg.id });
+  }
+
+  private async handleAddSchedule(
+    provider: ChatProvider,
+    msg: ChatMessage,
+    intent: Extract<ChatIntent, { type: "add_schedule" }>,
+  ): Promise<void> {
+    const project = this.engine.getProject(intent.projectSlug);
+    if (!project) {
+      await this.sendWithContext(provider, msg, pick("not_found"));
+      return;
+    }
+
+    try {
+      const schedule = this.engine.getScheduler().addSchedule({
+        projectId: project.id,
+        projectSlug: intent.projectSlug,
+        cronExpression: intent.cron,
+        goal: intent.goal,
+        description: intent.goal.slice(0, 80),
+      });
+
+      await this.sendWithContext(provider, msg,
+        `Scheduled! The Magnificent Skippy will handle this automatically.\n\n` +
+        `**Schedule** \`${schedule.id.slice(0, 8)}\`\n` +
+        `Cron: \`${intent.cron}\`\n` +
+        `Project: ${intent.projectSlug}\n` +
+        `Goal: ${intent.goal}\n\n` +
+        `Note: requires \`beercan start\` (daemon mode) to execute schedules.`,
+        { format: "markdown" }
+      );
+    } catch (err: any) {
+      await this.sendWithContext(provider, msg, `Failed to create schedule: ${err.message}`);
+    }
+  }
+
+  private async handleListSchedules(
+    provider: ChatProvider,
+    msg: ChatMessage,
+    intent: Extract<ChatIntent, { type: "list_schedules" }>,
+  ): Promise<void> {
+    const schedules = this.engine.getScheduler().listSchedules(intent.projectSlug);
+    if (schedules.length === 0) {
+      await this.sendWithContext(provider, msg, "No schedules found. Set one up with: \"schedule daily at 9am: fetch AI news\"");
+      return;
+    }
+
+    const lines = [`**Schedules** (${schedules.length})`, ""];
+    for (const s of schedules) {
+      const status = s.enabled ? "●" : "○";
+      lines.push(`${status} \`${s.cronExpression}\` — ${s.goal.slice(0, 60)}`);
+      lines.push(`  Project: ${s.projectSlug} | Last: ${s.lastRunAt ?? "never"} | ID: \`${s.id.slice(0, 8)}\``);
+    }
+    await this.sendWithContext(provider, msg, lines.join("\n"), { format: "markdown" });
   }
 
   private async handleHelp(

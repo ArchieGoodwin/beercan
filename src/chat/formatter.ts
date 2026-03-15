@@ -183,6 +183,8 @@ export function formatHelp(): string {
     `  /history [project]      — Recent bloops (or /h)`,
     `  /result <id>            — Full bloop result (or /r)`,
     `  /cancel <id>            — Cancel a job (or /c)`,
+    `  /schedule list          — View scheduled tasks`,
+    `  /schedule add <proj> "<cron>" <goal> — Add a schedule`,
     `  /help (or /?)           — You're reading it, genius`,
     ``,
     `**Quick shortcuts:**`,

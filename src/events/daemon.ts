@@ -51,6 +51,9 @@ export async function startDaemon(
         chatProviders.push("slack");
       }
 
+      // Subscribe to bloop events for automatic result delivery
+      chatBridge.subscribeToBloopEvents(eventManager.getEventBus());
+
       await chatBridge.start();
     } catch (err: any) {
       console.error(chalk.yellow(`[chat] Failed to start chat providers: ${err.message}`));

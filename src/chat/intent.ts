@@ -148,6 +148,25 @@ function parseSlashCommand(text: string): ChatIntent | null {
       return { type: "create_project", name, workDir };
     }
 
+    case "/schedule": {
+      // /schedule list [project] OR /schedule add <project> "<cron>" <goal>
+      const sub = parts[1];
+      if (!sub || sub === "list") {
+        return { type: "list_schedules", projectSlug: parts[2] };
+      }
+      if (sub === "add") {
+        const proj = parts[2];
+        // Find cron in quotes
+        const cronMatch = text.match(/"([^"]+)"/);
+        const afterCron = cronMatch ? text.slice(text.indexOf(cronMatch[0]) + cronMatch[0].length).trim() : "";
+        if (!proj || !cronMatch || !afterCron) {
+          return { type: "conversation", text: 'Usage: /schedule add <project> "<cron>" <goal>' };
+        }
+        return { type: "add_schedule", projectSlug: proj, cron: cronMatch[1], goal: afterCron };
+      }
+      return { type: "conversation", text: "Usage: /schedule list [project] OR /schedule add <project> \"<cron>\" <goal>" };
+    }
+
     case "/help":
     case "/?":
       return { type: "help" };
@@ -176,6 +195,8 @@ const CLASSIFY_INTENT_TOOL: Anthropic.Tool = {
           "bloop_result",
           "cancel_job",
           "create_project",
+          "add_schedule",
+          "list_schedules",
           "help",
           "conversation",
         ],
@@ -188,6 +209,10 @@ const CLASSIFY_INTENT_TOOL: Anthropic.Tool = {
       workDir: {
         type: "string",
         description: "Optional working directory path for create_project intents.",
+      },
+      cronExpression: {
+        type: "string",
+        description: "Cron expression for add_schedule. Common patterns: '0 9 * * *' (daily 9am), '0 9 * * 1-5' (weekdays 9am), '*/30 * * * *' (every 30min), '0 */2 * * *' (every 2 hours).",
       },
       projectSlug: {
         type: "string",
@@ -249,6 +274,8 @@ async function classifyWithLLM(
     "- bloop_result: user wants details about a specific bloop by ID.",
     "- cancel_job: user wants to cancel a running or pending job.",
     "- create_project: user wants to create a new project. Extract name and optional workDir.",
+    "- add_schedule: user wants to schedule a recurring task. Extract projectSlug, cronExpression (cron syntax), and goal. Convert natural language times: 'every day at 9am' = '0 9 * * *', 'every weekday morning' = '0 9 * * 1-5', 'every hour' = '0 * * * *'.",
+    "- list_schedules: user wants to see existing schedules.",
     "- help: user wants help with commands.",
     "- conversation: anything else — provide a helpful conversationResponse IN SKIPPY'S VOICE.",
     "",
@@ -356,6 +383,19 @@ function toolInputToIntent(
       }
       return { type: "create_project", name: projectName, workDir: (input.workDir as string) || undefined };
     }
+
+    case "add_schedule": {
+      const schedProject = (input.projectSlug as string) || ctx.lastProjectSlug;
+      const cron = input.cronExpression as string;
+      const schedGoal = (input.goal as string) || "";
+      if (!schedProject || !cron || !schedGoal) {
+        return { type: "conversation", text: "I need a project, schedule time, and goal. Try: 'schedule daily at 9am on my-project: fetch AI news'" };
+      }
+      return { type: "add_schedule", projectSlug: schedProject, cron, goal: schedGoal };
+    }
+
+    case "list_schedules":
+      return { type: "list_schedules", projectSlug: (input.projectSlug as string) || ctx.lastProjectSlug };
 
     case "help":
       return { type: "help" };

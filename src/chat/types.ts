@@ -31,5 +31,7 @@ export type ChatIntent =
   | { type: "cancel_job"; jobId: string }
   | { type: "create_project"; name: string; workDir?: string }
   | { type: "switch_project"; projectSlug: string }
+  | { type: "add_schedule"; projectSlug: string; cron: string; goal: string }
+  | { type: "list_schedules"; projectSlug?: string }
   | { type: "help" }
   | { type: "conversation"; text: string };
