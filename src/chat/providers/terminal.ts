@@ -90,7 +90,16 @@ export class TerminalProvider implements ChatProvider {
     text: string,
     _opts?: SendOpts,
   ): Promise<string> {
+    // Clear current readline line before printing (prevents garbled output from background events)
+    if (this.rl) {
+      readline.clearLine(process.stdout, 0);
+      readline.cursorTo(process.stdout, 0);
+    }
     console.log(this.renderMarkdown(text));
+    // Re-show prompt after background message
+    if (this.rl) {
+      this.rl.prompt(true);
+    }
     return uuid();
   }
 

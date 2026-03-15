@@ -223,13 +223,22 @@ async function main() {
 
   // ── All other commands need the engine ─────────────────────
 
-  // Suppress engine log noise in chat mode (must be before engine init)
+  // In chat mode, suppress all stdout during engine init
+  const origStdoutWrite = process.stdout.write.bind(process.stdout);
+  const origStderrWrite = process.stderr.write.bind(process.stderr);
   if (command === "chat") {
-    const { getLogger: getLog } = await import("./core/logger.js");
-    getLog().setQuiet(true);
+    process.stdout.write = (() => true) as any;
+    process.stderr.write = (() => true) as any;
   }
 
   const engine = await new BeerCanEngine().init();
+
+  if (command === "chat") {
+    process.stdout.write = origStdoutWrite;
+    process.stderr.write = origStderrWrite;
+    const { getLogger: getLog } = await import("./core/logger.js");
+    getLog().setQuiet(true);
+  }
 
   try {
     switch (command) {

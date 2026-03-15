@@ -53,10 +53,21 @@ export function formatBloopResult(bloop: Bloop): string {
 
   let resultText = "";
   if (bloop.result != null) {
-    const raw = typeof bloop.result === "string"
-      ? bloop.result
-      : JSON.stringify(bloop.result, null, 2);
-    resultText = raw.length > 2000 ? raw.slice(0, 2000) + "..." : raw;
+    // Extract readable text from result — prefer summary field, fall back to string or JSON
+    const r = bloop.result as Record<string, unknown>;
+    if (typeof r === "string") {
+      resultText = r;
+    } else if (r.summary && typeof r.summary === "string") {
+      resultText = r.summary;
+    } else if (r.error && typeof r.error === "string") {
+      resultText = `Error: ${r.error}`;
+    } else {
+      resultText = JSON.stringify(r, null, 2);
+    }
+    // Trim to reasonable length
+    if (resultText.length > 3000) resultText = resultText.slice(0, 3000) + "...";
+    // Clean up escaped newlines from JSON string fields
+    resultText = resultText.replace(/\\n/g, "\n");
   } else {
     resultText = "(no result)";
   }

@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import chalk from "chalk";
 import type { BeerCanEngine } from "../index.js";
 import type { ChatProvider, ChatMessage, ChatIntent, SendOpts } from "./types.js";
 import { parseIntent } from "./intent.js";
@@ -153,15 +154,18 @@ export class ChatBridge {
     this.updateProviderContext(provider, intent.projectSlug);
 
     // Run bloop in background — don't block chat
+    // Only show major events (phases, decisions) — skip noisy tool calls
     const channelId = msg.channelId;
     this.engine.runBloop({
       projectSlug: intent.projectSlug,
       goal: intent.goal,
       team: intent.team,
       onEvent: (event: BloopEvent) => {
+        // Only show high-level events in background mode
+        if (event.type === "tool_call" || event.type === "tool_result" || event.type === "agent_message") return;
         const line = formatBloopEvent(event);
         if (line) {
-          provider.sendMessage(channelId, line).catch(() => {});
+          provider.sendMessage(channelId, chalk.dim(`  ${line}`)).catch(() => {});
         }
       },
     }).then(async (bloop) => {
