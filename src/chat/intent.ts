@@ -274,12 +274,14 @@ async function classifyWithLLM(
     "- bloop_result: user wants details about a specific bloop by ID.",
     "- cancel_job: user wants to cancel a running or pending job.",
     "- create_project: user wants to create a new project. Extract name and optional workDir.",
-    "- add_schedule: user wants to schedule a recurring task. Extract projectSlug, cronExpression (cron syntax), and goal. Convert natural language times: 'every day at 9am' = '0 9 * * *', 'every weekday morning' = '0 9 * * 1-5', 'every hour' = '0 * * * *'.",
+    "- add_schedule: user wants to schedule a RECURRING task. IMPORTANT: When the user says 'schedule', 'daily', 'every day', 'every morning', 'every hour', 'at 9am', 'recurring', 'set up a cron' — this is ALWAYS add_schedule, NEVER run_bloop. Extract cronExpression and goal. The goal should be JUST THE TASK (e.g., 'search for AI news and write a summary'), NOT 'schedule a task to...' — BeerCan handles the scheduling, the goal is what to DO each time.",
+    "  Convert natural language: 'every day at 9am' = '0 9 * * *', 'weekday mornings' = '0 9 * * 1-5', 'every hour' = '0 * * * *', 'every 30 min' = '*/30 * * * *'.",
     "- list_schedules: user wants to see existing schedules.",
     "- help: user wants help with commands.",
     "- conversation: anything else — provide a helpful conversationResponse IN SKIPPY'S VOICE.",
     "",
     "If the user asks to run something but does not specify a project, use the context project if available.",
+    "CRITICAL: 'schedule X at Y' = add_schedule. 'do X right now' = run_bloop. Never confuse these.",
   ].join("\n");
 
   try {

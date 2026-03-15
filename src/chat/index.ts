@@ -482,7 +482,8 @@ export class ChatBridge {
         `Cron: \`${intent.cron}\`\n` +
         `Project: ${intent.projectSlug}\n` +
         `Goal: ${intent.goal}\n\n` +
-        `Note: requires \`beercan start\` (daemon mode) to execute schedules.`,
+        `The schedule is active. Skippy will execute this automatically at the scheduled time.\n` +
+        `Use \`/schedule list\` to see all schedules. Make sure \`beercan start\` is running for daemon mode.`,
         { format: "markdown" }
       );
     } catch (err: any) {
