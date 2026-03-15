@@ -762,6 +762,19 @@
   </div>
 </section>
 
+<!-- ── Schedules ──────────────────────────────────────── -->
+<section class="schedules-section">
+  <div class="container">
+    <div class="section-label">Schedules</div>
+    <h2 class="section-title">Recurring tasks</h2>
+    <p class="section-desc">Cron-based bloops that run automatically.</p>
+
+    <div id="schedules-container">
+      <div class="empty-state">No schedules. Add one with Skippy: "schedule daily at 9am: fetch news"</div>
+    </div>
+  </div>
+</section>
+
 <!-- ── Active Bloops ───────────────────────────────────── -->
 <section class="active-bloops-section hidden" id="active-bloops-section">
   <div class="container">
@@ -914,17 +927,19 @@
     const apiUrl = getApiUrl();
 
     try {
-      const [statusRes, projectsRes, jobsRes, recentRes] = await Promise.all([
+      const [statusRes, projectsRes, jobsRes, recentRes, schedulesRes] = await Promise.all([
         fetch(apiUrl + '/api/status').then(r => r.json()),
         fetch(apiUrl + '/api/projects').then(r => r.json()),
         fetch(apiUrl + '/api/jobs').then(r => r.json()),
         fetch(apiUrl + '/api/bloops/recent').then(r => r.json()),
+        fetch(apiUrl + '/api/schedules').then(r => r.json()),
       ]);
 
       setConnected(true);
       renderOverview(statusRes, jobsRes);
       renderProjects(projectsRes);
       renderJobs(jobsRes);
+      renderSchedules(schedulesRes);
       renderActiveBloops(recentRes);
       renderHistory(recentRes);
     } catch (err) {
@@ -1029,6 +1044,31 @@
   }
 
   // ── Render: Active Bloops ─────────────────────────
+  // ── Render: Schedules ─────────────────────────────
+  function renderSchedules(data) {
+    const container = document.getElementById('schedules-container');
+    const schedules = data.schedules || [];
+
+    if (schedules.length === 0) {
+      container.innerHTML = '<div class="empty-state">No schedules. Add one with Skippy: "schedule daily at 9am: fetch news"</div>';
+      return;
+    }
+
+    let html = '<div class="history-list">';
+    for (const s of schedules) {
+      const statusDot = s.enabled ? '<span class="dot green"></span>' : '<span class="dot red"></span>';
+      const lastRun = s.lastRunAt ? formatTimestamp(s.lastRunAt) : 'never';
+      html += '<div class="history-item">';
+      html += statusDot;
+      html += '<span class="history-goal"><code>' + escapeHtml(s.cronExpression) + '</code> &mdash; ' + escapeHtml(s.goal) + '</span>';
+      html += '<span class="history-project">' + escapeHtml(s.projectSlug) + '</span>';
+      html += '<span class="history-duration">Last: ' + lastRun + '</span>';
+      html += '</div>';
+    }
+    html += '</div>';
+    container.innerHTML = html;
+  }
+
   function renderActiveBloops(data) {
     const bloops = (data.bloops || []).filter(b => b.status === 'running');
     const section = document.getElementById('active-bloops-section');
