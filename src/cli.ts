@@ -737,6 +737,10 @@ Do NOT rewrite everything — make focused, incremental changes.`,
       case "chat": {
         const chatProject = args[1];
 
+        // Suppress engine log noise in chat mode
+        const { getLogger: getLog } = await import("./core/logger.js");
+        getLog().setQuiet(true);
+
         const { createAnthropicClient } = await import("./client.js");
         const { ChatBridge } = await import("./chat/index.js");
         const { TerminalProvider } = await import("./chat/providers/terminal.js");

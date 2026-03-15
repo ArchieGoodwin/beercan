@@ -30,5 +30,6 @@ export type ChatIntent =
   | { type: "bloop_result"; bloopId: string }
   | { type: "cancel_job"; jobId: string }
   | { type: "create_project"; name: string; workDir?: string }
+  | { type: "switch_project"; projectSlug: string }
   | { type: "help" }
   | { type: "conversation"; text: string };

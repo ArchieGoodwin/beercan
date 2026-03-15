@@ -38,6 +38,7 @@ CLI commands via `npm run beercan --` (or `beercan` if installed globally):
 - `jobs [status]` — view job queue (pending, running, completed, failed counts)
 
 **Chat & server:**
+- `setup` — interactive first-time configuration wizard (API keys, models, integrations)
 - `chat [project]` — interactive conversational mode (terminal REPL)
 - `serve [port]` — start API-only server (default port 3939)
 - `daemon` — run scheduler + event system + API + chat providers
@@ -78,6 +79,7 @@ CLI commands via `npm run beercan --` (or `beercan` if installed globally):
 - `src/api/handlers/` — API route handlers (status, projects, jobs, schedules, bloops)
 - `src/chat/index.ts` — `ChatBridge`, conversational orchestrator with provider-agnostic architecture
 - `src/chat/skippy.ts` — Skippy the Magnificent personality system prompt
+- `src/chat/skippy-phrases.ts` — Randomized phrase pools (60+ phrases, 13 categories) with `pick()`, `addPhrases()`, `setPhrases()` API
 - `src/chat/intent.ts` — Two-tier intent parser (slash commands + LLM classification)
 - `src/chat/providers/` — Terminal, Telegram, Slack, WebSocket chat providers
 
@@ -152,6 +154,8 @@ Provider-agnostic chat layer for interacting with BeerCan via natural language.
 - **Telegram** — set `BEERCAN_TELEGRAM_TOKEN` — bot auto-starts in daemon mode (requires `telegraf`)
 - **Slack** — set `BEERCAN_SLACK_TOKEN` + `BEERCAN_SLACK_SIGNING_SECRET` — auto-starts in daemon (requires `@slack/bolt`)
 - **WebSocket** — generic ws server on port 3940 for custom integrations (requires `ws`)
+
+**Shortcuts:** `#` for projects (`#slug` switch, `#slug goal` run), `@` for bloops (`@id` result), `##` exit project context.
 
 **Slash commands:** `/run <project> <goal>`, `/status`, `/projects`, `/history [project]`, `/result <id>`, `/cancel <id>`, `/help`
 

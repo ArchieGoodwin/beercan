@@ -78,6 +78,11 @@ export function getConfig(): Config {
   return _config;
 }
 
+/** Reset cached config (for testing). */
+export function resetConfig(): void {
+  _config = null;
+}
+
 export function getProjectDir(projectSlug: string): string {
   return path.join(getConfig().dataDir, "projects", projectSlug);
 }

@@ -20,6 +20,11 @@ export async function parseIntent(
 ): Promise<ChatIntent> {
   const trimmed = text.trim();
 
+  // ── Tier 0: # and @ shortcuts ─────────────────────────────
+
+  const shortcutResult = parseShortcuts(trimmed, ctx, engine);
+  if (shortcutResult) return shortcutResult;
+
   // ── Tier 1: Slash Commands ─────────────────────────────────
 
   const slashResult = parseSlashCommand(trimmed);
@@ -28,6 +33,60 @@ export async function parseIntent(
   // ── Tier 2: Natural Language (LLM) ─────────────────────────
 
   return classifyWithLLM(client, trimmed, ctx, engine);
+}
+
+// ── Tier 0: # and @ Shortcuts ────────────────────────────────
+
+function parseShortcuts(
+  text: string,
+  ctx: { lastProjectSlug?: string },
+  engine: BeerCanEngine,
+): ChatIntent | null {
+  // # alone → list projects
+  if (text === "#") {
+    return { type: "list_projects" };
+  }
+
+  // ## → exit project context, back to system-level Skippy
+  if (text === "##") {
+    return { type: "switch_project", projectSlug: "" };
+  }
+
+  // #project-name [goal] → switch context or run bloop
+  if (text.startsWith("#")) {
+    const parts = text.slice(1).split(/\s+/);
+    const slug = parts[0];
+    const goal = parts.slice(1).join(" ");
+
+    const project = engine.getProject(slug);
+    if (!project) {
+      // Show available projects if slug not found
+      const projects = engine.listProjects();
+      const names = projects.map((p) => `#${p.slug}`).join(", ");
+      return { type: "conversation", text: `Project \`${slug}\` not found. Available: ${names || "(none)"}` };
+    }
+
+    if (goal) {
+      // #project-name do something → run bloop
+      return { type: "run_bloop", projectSlug: slug, goal };
+    }
+
+    // #project-name alone → switch context (handled by ChatBridge)
+    return { type: "switch_project" as any, projectSlug: slug };
+  }
+
+  // @ alone → recent bloops
+  if (text === "@") {
+    return { type: "bloop_history", projectSlug: ctx.lastProjectSlug };
+  }
+
+  // @id → bloop result
+  if (text.startsWith("@")) {
+    const bloopId = text.slice(1).trim();
+    return { type: "bloop_result", bloopId };
+  }
+
+  return null;
 }
 
 // ── Tier 1: Slash Command Parser ─────────────────────────────

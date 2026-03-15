@@ -1,6 +1,7 @@
 import type { BloopEvent } from "../core/runner.js";
 import type { Bloop, Project } from "../schemas.js";
 import type { JobStats } from "../core/job-queue.js";
+import { pick } from "./skippy-phrases.js";
 
 // ── BloopEvent Formatting ──────────────────────────────────────
 
@@ -111,7 +112,7 @@ export function formatProjects(
   }>,
 ): string {
   if (projects.length === 0) {
-    return "No projects? Seriously? You summoned the Magnificent Skippy and you don't even have a project set up? Try `/init <name>` or just tell me what to create, you dumbass.";
+    return pick("no_projects");
   }
 
   const lines: string[] = [`**Projects** (${projects.length})`, ``];
@@ -134,7 +135,7 @@ export function formatProjects(
  */
 export function formatHistory(bloops: Bloop[]): string {
   if (bloops.length === 0) {
-    return "No bloops yet. The Magnificent Skippy is tragically underutilized. Give me something to do!";
+    return pick("no_bloops");
   }
 
   const lines: string[] = [`**Recent Bloops** (${bloops.length})`, ``];
@@ -173,11 +174,17 @@ export function formatHelp(): string {
     `  /cancel <id>            — Cancel a job (or /c)`,
     `  /help (or /?)           — You're reading it, genius`,
     ``,
+    `**Quick shortcuts:**`,
+    `  #                        — List all projects`,
+    `  #my-project              — Switch to a project`,
+    `  #my-project do something — Run a bloop on that project`,
+    `  @                        — Recent bloops`,
+    `  @bloop-id                — Show bloop result`,
+    ``,
     `**Or just talk to me like a normal monkey:**`,
     `  "create a project for my-api at ~/projects/my-api"`,
-    `  "analyze the test coverage on my-project"`,
+    `  "analyze the test coverage"`,
     `  "what's running right now?"`,
-    `  "show me what happened recently"`,
     ``,
     `I'm Skippy. I'm magnificent. I'm a beer can. Deal with it.`,
   ].join("\n");

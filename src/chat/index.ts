@@ -1,6 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { BeerCanEngine } from "../index.js";
-import type { ChatProvider, ChatMessage, ChatIntent } from "./types.js";
+import type { ChatProvider, ChatMessage, ChatIntent, SendOpts } from "./types.js";
 import { parseIntent } from "./intent.js";
 import {
   formatBloopEvent,
@@ -10,6 +10,7 @@ import {
   formatHistory,
   formatHelp,
 } from "./formatter.js";
+import { pick } from "./skippy-phrases.js";
 import type { BloopEvent } from "../core/runner.js";
 
 // ── Channel Context ────────────────────────────────────────────
@@ -46,6 +47,9 @@ export class ChatBridge {
   /** Set default project context for a channel (e.g., from CLI arg). */
   setDefaultProject(channelId: string, projectSlug: string): void {
     this.channelContexts.set(channelId, { lastProjectSlug: projectSlug });
+    for (const provider of this.providers) {
+      this.updateProviderContext(provider, projectSlug);
+    }
   }
 
   /** Start all registered providers. */
@@ -102,11 +106,14 @@ export class ChatBridge {
         case "create_project":
           await this.handleCreateProject(provider, msg, intent);
           break;
+        case "switch_project":
+          await this.handleSwitchProject(provider, msg, intent);
+          break;
         case "help":
           await this.handleHelp(provider, msg);
           break;
         case "conversation":
-          await provider.sendMessage(msg.channelId, intent.text, { replyTo: msg.id });
+          await this.sendWithContext(provider, msg, intent.text);
           break;
       }
     } catch (err: any) {
@@ -133,7 +140,7 @@ export class ChatBridge {
     // Send initial progress message
     const progressMsgId = await provider.sendMessage(
       msg.channelId,
-      `Starting bloop on \`${intent.projectSlug}\`...\nGoal: ${intent.goal}`,
+      `${pick("bloop_starting", { project: intent.projectSlug })}\nGoal: ${intent.goal}`,
       { replyTo: msg.id },
     );
 
@@ -194,13 +201,10 @@ export class ChatBridge {
         lastProjectSlug: intent.projectSlug,
         lastBloopId: bloop.id,
       });
+      this.updateProviderContext(provider, intent.projectSlug);
 
       // Send the final formatted result
-      await provider.sendMessage(
-        msg.channelId,
-        formatBloopResult(bloop),
-        { format: "markdown" },
-      );
+      await this.sendWithContext(provider, msg, formatBloopResult(bloop), { format: "markdown" });
     } catch (err: any) {
       if (editTimer) clearTimeout(editTimer);
       await provider.sendMessage(
@@ -261,11 +265,7 @@ export class ChatBridge {
       bloops = this.engine.getRecentBloops(20);
     }
 
-    await provider.sendMessage(
-      msg.channelId,
-      formatHistory(bloops),
-      { format: "markdown", replyTo: msg.id },
-    );
+    await this.sendWithContext(provider, msg, formatHistory(bloops), { format: "markdown" });
   }
 
   private async handleBloopResult(
@@ -276,11 +276,7 @@ export class ChatBridge {
     const bloop = this.engine.getBloop(intent.bloopId);
 
     if (!bloop) {
-      await provider.sendMessage(
-        msg.channelId,
-        `Bloop not found: \`${intent.bloopId}\``,
-        { replyTo: msg.id },
-      );
+      await this.sendWithContext(provider, msg, pick("not_found"));
       return;
     }
 
@@ -290,11 +286,7 @@ export class ChatBridge {
       lastBloopId: bloop.id,
     });
 
-    await provider.sendMessage(
-      msg.channelId,
-      formatBloopResult(bloop),
-      { format: "markdown", replyTo: msg.id },
-    );
+    await this.sendWithContext(provider, msg, formatBloopResult(bloop), { format: "markdown" });
   }
 
   private async handleCancelJob(
@@ -305,17 +297,9 @@ export class ChatBridge {
     const result = this.engine.getJobQueue().cancelJob(intent.jobId);
 
     if (result.cancelled) {
-      await provider.sendMessage(
-        msg.channelId,
-        `Job \`${intent.jobId}\` cancelled.`,
-        { replyTo: msg.id },
-      );
+      await this.sendWithContext(provider, msg, pick("cancel_success", { id: intent.jobId }));
     } else {
-      await provider.sendMessage(
-        msg.channelId,
-        `Could not cancel job \`${intent.jobId}\`: ${result.reason}`,
-        { replyTo: msg.id },
-      );
+      await this.sendWithContext(provider, msg, pick("cancel_failed", { id: intent.jobId, reason: result.reason ?? "unknown" }));
     }
   }
 
@@ -330,7 +314,7 @@ export class ChatBridge {
     if (existing) {
       await provider.sendMessage(
         msg.channelId,
-        `Project \`${slug}\` already exists, monkey. Try a different name.`,
+        pick("project_exists", { slug }),
         { replyTo: msg.id },
       );
       return;
@@ -347,12 +331,76 @@ export class ChatBridge {
       ...this.channelContexts.get(msg.channelId),
       lastProjectSlug: project.slug,
     });
+    this.updateProviderContext(provider, project.slug);
 
-    let reply = `Oh, the Magnificent Skippy is SO put-upon. Fine. Project **${project.name}** (\`${project.slug}\`) created. Another domain under my glorious rule.`;
+    let reply = pick("project_created", { project: `${project.name}** (\`${project.slug}\`` });
     if (intent.workDir) reply += `\nWork dir: \`${intent.workDir}\``;
-    reply += `\n\nNow tell me what you need done, monkey. I don't have all day. Well, actually I do. I'm immortal. But still.`;
+    reply += `\n\n${pick("project_created_followup")}`;
 
     await provider.sendMessage(msg.channelId, reply, { format: "markdown", replyTo: msg.id });
+  }
+
+  private async handleSwitchProject(
+    provider: ChatProvider,
+    msg: ChatMessage,
+    intent: Extract<ChatIntent, { type: "switch_project" }>,
+  ): Promise<void> {
+    // ## → exit to system level
+    if (!intent.projectSlug) {
+      this.channelContexts.set(msg.channelId, {
+        ...this.channelContexts.get(msg.channelId),
+        lastProjectSlug: undefined,
+      });
+      this.updateProviderContext(provider, null);
+      await provider.sendMessage(msg.channelId, pick("exit_project"), { replyTo: msg.id });
+      return;
+    }
+
+    const project = this.engine.getProject(intent.projectSlug);
+    if (!project) {
+      await provider.sendMessage(msg.channelId, `Project \`${intent.projectSlug}\` not found.`, { replyTo: msg.id });
+      return;
+    }
+
+    this.channelContexts.set(msg.channelId, {
+      ...this.channelContexts.get(msg.channelId),
+      lastProjectSlug: intent.projectSlug,
+    });
+
+    this.updateProviderContext(provider, intent.projectSlug);
+
+    const stats = this.engine.getProjectBloopStats(intent.projectSlug);
+    const bloopInfo = stats
+      ? `${stats.total} bloops (${stats.completed} completed, ${stats.failed} failed)`
+      : "no bloops yet";
+
+    await provider.sendMessage(
+      msg.channelId,
+      `Switched to **${project.name}** (\`${project.slug}\`). ${bloopInfo}.${project.workDir ? `\nWork dir: \`${project.workDir}\`` : ""}`,
+      { format: "markdown", replyTo: msg.id },
+    );
+  }
+
+  /** Update provider prompt to show current project (terminal only). */
+  private updateProviderContext(provider: ChatProvider, projectSlug: string | null): void {
+    if ("setProjectContext" in provider && typeof (provider as any).setProjectContext === "function") {
+      (provider as any).setProjectContext(projectSlug);
+    }
+  }
+
+  /** Send a message with project context badge for non-terminal providers. */
+  private async sendWithContext(
+    provider: ChatProvider,
+    msg: ChatMessage,
+    text: string,
+    opts?: SendOpts,
+  ): Promise<string> {
+    const ctx = this.channelContexts.get(msg.channelId);
+    const hasPrompt = "setProjectContext" in provider; // terminal has it
+    if (!hasPrompt && ctx?.lastProjectSlug) {
+      text = `\`[${ctx.lastProjectSlug}]\` ${text}`;
+    }
+    return provider.sendMessage(msg.channelId, text, { ...opts, replyTo: opts?.replyTo ?? msg.id });
   }
 
   private async handleHelp(
@@ -386,6 +434,7 @@ function formatUptime(ms: number): string {
 export type { ChatProvider, ChatMessage, ChatIntent, SendOpts } from "./types.js";
 export { parseIntent } from "./intent.js";
 export { SKIPPY_SYSTEM_PROMPT, SKIPPY_INTENT_PROMPT } from "./skippy.js";
+export { pick, addPhrases, setPhrases, listCategories, getPhrases } from "./skippy-phrases.js";
 export {
   formatBloopEvent,
   formatBloopResult,

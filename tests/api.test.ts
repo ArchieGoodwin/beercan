@@ -4,6 +4,7 @@ import { BeerCanDB } from "../src/storage/database.js";
 import { EventBus } from "../src/events/event-bus.js";
 import { WebhookSource } from "../src/events/sources/webhook-source.js";
 import { registerStatusApi } from "../src/api/index.js";
+import { resetConfig } from "../src/config.js";
 
 function tmpDb(): string {
   return `/tmp/beercan-api-test-${Date.now()}-${Math.random().toString(36).slice(2)}.db`;
@@ -27,6 +28,10 @@ describe("Status API", () => {
   };
 
   beforeEach(async () => {
+    // Ensure API key auth doesn't interfere with tests
+    delete process.env.BEERCAN_API_KEY;
+    resetConfig();
+
     dbPath = tmpDb();
     db = new BeerCanDB(dbPath);
     port = 30000 + Math.floor(Math.random() * 30000);

@@ -12,6 +12,14 @@ npm install -g beercan
 
 Requires Node.js 18+ and an [Anthropic API key](https://console.anthropic.com/).
 
+## Setup
+
+```bash
+beercan setup
+```
+
+Interactive wizard that configures your API keys, models, and optional integrations (Cloudflare, Telegram, Slack). Creates `~/.beercan/.env`.
+
 ## Quick Start
 
 ```bash
@@ -43,23 +51,45 @@ beercan chat my-project
 ```
 🍺 Skippy the Magnificent
   Elder AI | Beer Can | Your intellectual superior
+  Use # for projects, @ for bloops.
 
 skippy> create a project for my-api at ~/work/my-api
-Project my-api created. Another domain under my glorious rule.
+Zounds! A new project! my-api now exists because I willed it so.
 
-skippy> analyze the codebase for bugs
+skippy [my-api]> analyze the codebase for security issues
 ▸ Phase: plan (planner)
 ⚙ read_file • list_directory
-▸ Phase: review (reviewer)
-✦ APPROVE
 ✓ Bloop completed — 8,421 tokens
+
+skippy [my-api]> @
+Recent Bloops (1)
+- a3f2b1c9 [completed] analyze the codebase for security issues
+
+skippy [my-api]> ##
+Back to system level. The Magnificent Skippy oversees all.
+
+skippy> #
+Projects (1)
+- my-api — 1 bloops | ~/work/my-api
 
 skippy> /status
 Skippy's Magnificent Status Report
-Uptime: 2h 15m | Projects: 3 | Running: 1
+Uptime: 2h 15m | Projects: 1 | Running: 0
 ```
 
 Natural language or slash commands — Skippy understands both.
+
+### Shortcuts
+
+| Shortcut | Action |
+|----------|--------|
+| `#` | List all projects |
+| `#project-name` | Switch to a project |
+| `#project-name do something` | Run a bloop on that project |
+| `##` | Exit project context (back to system level) |
+| `@` | Show recent bloops |
+| `@bloop-id` | Show bloop result |
+| `/run`, `/status`, `/help`, etc. | Slash commands |
 
 ## What It Does
 
@@ -205,11 +235,14 @@ All providers share the same ChatBridge — slash commands and natural language 
 - **API key auth** — `BEERCAN_API_KEY` secures all endpoints
 - **Rate limiting** — per-IP sliding window on all requests
 - **Auto-notifications** — desktop notifications + webhook callbacks on completion/failure
+- **Interactive setup** — `beercan setup` wizard for first-time configuration
+- **Skippy personality** — randomized phrase pools with 60+ responses across 13 categories
 - **Status dashboard** — live web UI at `beercan-site/status.html`
 
 ## CLI Reference
 
 ```
+beercan setup                              First-time configuration wizard
 beercan init <name> [--work-dir <path>]    Create a project
 beercan projects                            List projects
 beercan status                              Overview of all projects

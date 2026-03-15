@@ -19,6 +19,7 @@ export interface LogEntry {
 export class Logger {
   private level: number;
   private fileStream: fs.WriteStream | null = null;
+  private quiet = false;
 
   constructor(level: LogLevel = "info", logFilePath?: string) {
     this.level = LEVELS[level];
@@ -28,6 +29,11 @@ export class Logger {
       if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
       this.fileStream = fs.createWriteStream(logFilePath, { flags: "a" });
     }
+  }
+
+  /** Suppress console output (file-only). Used in chat mode. */
+  setQuiet(quiet: boolean): void {
+    this.quiet = quiet;
   }
 
   private write(level: LogLevel, component: string, message: string, data?: Record<string, unknown>): void {
@@ -45,6 +51,8 @@ export class Logger {
 
     // Always write to file if available
     this.fileStream?.write(line + "\n");
+
+    if (this.quiet) return;
 
     // Write to stderr for warn/error, stdout for others
     if (level === "error" || level === "warn") {
