@@ -41,6 +41,12 @@ export class ChatBridge {
     provider.onMessage(async (msg) => {
       await this.handleMessage(provider, msg);
     });
+
+    // Set up tab-completion for terminal providers
+    if ("setCompleter" in provider && typeof (provider as any).setCompleter === "function") {
+      (provider as any).setCompleter((line: string) => this.complete(line));
+    }
+
     this.providers.push(provider);
   }
 
@@ -132,86 +138,41 @@ export class ChatBridge {
     msg: ChatMessage,
     intent: Extract<ChatIntent, { type: "run_bloop" }>,
   ): Promise<void> {
-    // Send typing indicator if supported
-    if (provider.sendTypingIndicator) {
-      await provider.sendTypingIndicator(msg.channelId);
-    }
-
-    // Send initial progress message
-    const progressMsgId = await provider.sendMessage(
+    // Send initial message
+    await provider.sendMessage(
       msg.channelId,
       `${pick("bloop_starting", { project: intent.projectSlug })}\nGoal: ${intent.goal}`,
       { replyTo: msg.id },
     );
 
-    // Batch event updates — edit the progress message at most every 3 seconds
-    const eventLines: string[] = [];
-    let lastEditTime = Date.now();
-    let editPending = false;
-    let editTimer: ReturnType<typeof setTimeout> | null = null;
+    // Update context immediately
+    this.channelContexts.set(msg.channelId, {
+      ...this.channelContexts.get(msg.channelId),
+      lastProjectSlug: intent.projectSlug,
+    });
+    this.updateProviderContext(provider, intent.projectSlug);
 
-    const flushEdit = async () => {
-      editPending = false;
-      if (editTimer) {
-        clearTimeout(editTimer);
-        editTimer = null;
-      }
-      if (eventLines.length === 0) return;
-
-      // Show last 15 event lines to keep the message manageable
-      const display = eventLines.slice(-15).join("\n");
-      try {
-        await provider.editMessage(msg.channelId, progressMsgId, display);
-      } catch {
-        // Editing may fail on some providers — silently ignore
-      }
-      lastEditTime = Date.now();
-    };
-
-    const onEvent = (event: BloopEvent) => {
-      const line = formatBloopEvent(event);
-      if (line == null) return;
-      eventLines.push(line);
-
-      const elapsed = Date.now() - lastEditTime;
-      if (elapsed >= 3000) {
-        // Enough time has passed — flush immediately
-        flushEdit();
-      } else if (!editPending) {
-        // Schedule a flush for the remainder of the 3s window
-        editPending = true;
-        editTimer = setTimeout(flushEdit, 3000 - elapsed);
-      }
-    };
-
-    try {
-      const bloop = await this.engine.runBloop({
-        projectSlug: intent.projectSlug,
-        goal: intent.goal,
-        team: intent.team,
-        onEvent,
-      });
-
-      // Clear any pending edit timer
-      if (editTimer) clearTimeout(editTimer);
-
-      // Update channel context
-      this.channelContexts.set(msg.channelId, {
-        ...this.channelContexts.get(msg.channelId),
-        lastProjectSlug: intent.projectSlug,
+    // Run bloop in background — don't block chat
+    const channelId = msg.channelId;
+    this.engine.runBloop({
+      projectSlug: intent.projectSlug,
+      goal: intent.goal,
+      team: intent.team,
+      onEvent: (event: BloopEvent) => {
+        const line = formatBloopEvent(event);
+        if (line) {
+          provider.sendMessage(channelId, line).catch(() => {});
+        }
+      },
+    }).then(async (bloop) => {
+      this.channelContexts.set(channelId, {
+        ...this.channelContexts.get(channelId),
         lastBloopId: bloop.id,
       });
-      this.updateProviderContext(provider, intent.projectSlug);
-
-      // Send the final formatted result
-      await this.sendWithContext(provider, msg, formatBloopResult(bloop), { format: "markdown" });
-    } catch (err: any) {
-      if (editTimer) clearTimeout(editTimer);
-      await provider.sendMessage(
-        msg.channelId,
-        `Bloop execution failed: ${err.message}`,
-      );
-    }
+      await this.sendWithContext(provider, msg, `\n${pick("bloop_completed")}\n${formatBloopResult(bloop)}`, { format: "markdown" });
+    }).catch(async (err: any) => {
+      await provider.sendMessage(channelId, `${pick("bloop_failed")}\n${err.message}`);
+    });
   }
 
   private async handleCheckStatus(
@@ -382,6 +343,36 @@ export class ChatBridge {
   }
 
   /** Update provider prompt to show current project (terminal only). */
+  /** Tab-completion for terminal. */
+  private complete(line: string): [string[], string] {
+    // # → project slugs
+    if (line.startsWith("#")) {
+      const partial = line.slice(1);
+      const slugs = this.engine.listProjects().map((p) => `#${p.slug}`);
+      if (!partial) return [["##", ...slugs], line];
+      const matches = slugs.filter((s) => s.startsWith(`#${partial}`));
+      return [matches.length ? matches : slugs, line];
+    }
+
+    // @ → recent bloop IDs
+    if (line.startsWith("@")) {
+      const partial = line.slice(1);
+      const ids = this.engine.getRecentBloops(10).map((b) => `@${b.id.slice(0, 8)}`);
+      if (!partial) return [ids, line];
+      const matches = ids.filter((id) => id.startsWith(`@${partial}`));
+      return [matches.length ? matches : ids, line];
+    }
+
+    // / → slash commands
+    if (line.startsWith("/")) {
+      const commands = ["/run", "/init", "/status", "/projects", "/history", "/result", "/cancel", "/help"];
+      const matches = commands.filter((c) => c.startsWith(line));
+      return [matches.length ? matches : commands, line];
+    }
+
+    return [[], line];
+  }
+
   private updateProviderContext(provider: ChatProvider, projectSlug: string | null): void {
     if ("setProjectContext" in provider && typeof (provider as any).setProjectContext === "function") {
       (provider as any).setProjectContext(projectSlug);

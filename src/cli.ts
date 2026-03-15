@@ -223,6 +223,12 @@ async function main() {
 
   // ── All other commands need the engine ─────────────────────
 
+  // Suppress engine log noise in chat mode (must be before engine init)
+  if (command === "chat") {
+    const { getLogger: getLog } = await import("./core/logger.js");
+    getLog().setQuiet(true);
+  }
+
   const engine = await new BeerCanEngine().init();
 
   try {
@@ -736,10 +742,6 @@ Do NOT rewrite everything — make focused, incremental changes.`,
 
       case "chat": {
         const chatProject = args[1];
-
-        // Suppress engine log noise in chat mode
-        const { getLogger: getLog } = await import("./core/logger.js");
-        getLog().setQuiet(true);
 
         const { createAnthropicClient } = await import("./client.js");
         const { ChatBridge } = await import("./chat/index.js");

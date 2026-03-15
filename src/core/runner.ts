@@ -276,18 +276,20 @@ export class BloopRunner {
     const config = getConfig();
     const model = role.model ?? config.defaultModel;
 
-    // Build system prompt
+    // Resolve allowed tools for this role within this project
+    const roleTools = this.resolveTools(role.allowedTools, project.allowedTools);
+    const anthropicTools = this.tools.toAnthropicTools(roleTools);
+    const toolNames = roleTools.includes("*") ? this.tools.listToolNames() : roleTools;
+
+    // Build system prompt (with tool awareness)
     const systemPrompt = this.buildSystemPrompt(
       role,
       project,
       bloop.goal,
       pipelineContext,
-      options.extraContext
+      options.extraContext,
+      toolNames
     );
-
-    // Resolve allowed tools for this role within this project
-    const roleTools = this.resolveTools(role.allowedTools, project.allowedTools);
-    const anthropicTools = this.tools.toAnthropicTools(roleTools);
 
     // Agent conversation (local to this phase execution)
     const messages: Anthropic.MessageParam[] = [
@@ -411,7 +413,8 @@ export class BloopRunner {
     project: Project,
     goal: string,
     pipelineContext: string,
-    extraContext?: string
+    extraContext?: string,
+    availableToolNames?: string[]
   ): string {
     const parts: string[] = [role.systemPrompt];
 
@@ -436,6 +439,22 @@ export class BloopRunner {
       sysLines.push(`IMPORTANT: All file paths should be relative to or within ${project.workDir}. Use this as the cwd for exec_command.`);
     }
     parts.push(`\n--- System Info ---\n${sysLines.join("\n")}`);
+
+    // Tell the agent what tools it has — especially web access
+    if (availableToolNames && availableToolNames.length > 0) {
+      const toolList = availableToolNames.join(", ");
+      const capabilities: string[] = [];
+      if (availableToolNames.some((t) => t === "web_fetch" || t === "*")) {
+        capabilities.push("You CAN fetch web pages and URLs using the web_fetch tool. Use it to search for information, read web pages, and access online content.");
+      }
+      if (availableToolNames.some((t) => t === "http_request" || t === "*")) {
+        capabilities.push("You CAN make HTTP requests (GET, POST, etc.) using the http_request tool for APIs and web services.");
+      }
+      if (availableToolNames.some((t) => t === "exec_command" || t === "*")) {
+        capabilities.push("You CAN execute shell commands using exec_command.");
+      }
+      parts.push(`\n--- Available Tools ---\nTools: ${toolList}\n${capabilities.join("\n")}`);
+    }
 
     return parts.join("\n");
   }

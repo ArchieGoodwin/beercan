@@ -26,6 +26,11 @@ export class ToolRegistry {
     return this.tools.has(name);
   }
 
+  /** List all registered tool names. */
+  listToolNames(): string[] {
+    return Array.from(this.tools.keys());
+  }
+
   /**
    * Get tool definitions filtered by an allow-list.
    * Pass ["*"] to get all tools.
