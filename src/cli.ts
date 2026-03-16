@@ -899,11 +899,29 @@ Do NOT rewrite everything — make focused, incremental changes.`,
         child.unref();
         fs.writeFileSync(pidFile, String(child.pid));
 
-        console.log(chalk.bold.blue("\n🍺 BeerCan started"));
-        console.log(chalk.dim(`  PID: ${child.pid}`));
-        console.log(chalk.dim(`  API: http://localhost:3939`));
-        console.log(chalk.dim(`  Dashboard: http://localhost:3939/`));
-        console.log(chalk.dim(`  Stop: beercan stop\n`));
+        // Show friendly startup info
+        const pkgPath = new URL("../package.json", import.meta.url);
+        let version = "?";
+        try { version = JSON.parse(fs.readFileSync(pkgPath, "utf-8")).version; } catch {}
+
+        const projects = engine.listProjects();
+        const schedules = engine.getScheduler().listSchedules();
+        const bloopStats = engine.getBloopStats();
+
+        console.log(chalk.bold.blue(`\n🍺 BeerCan v${version} started`));
+        console.log(chalk.dim(`  PID:        ${child.pid}`));
+        console.log(chalk.dim(`  API:        http://localhost:3939`));
+        console.log(chalk.dim(`  Dashboard:  http://localhost:3939/`));
+        console.log(chalk.dim(`  Projects:   ${projects.length}`));
+        console.log(chalk.dim(`  Schedules:  ${schedules.length}${schedules.length > 0 ? ` (${schedules.filter(s => s.enabled).length} active)` : ""}`));
+        console.log(chalk.dim(`  Bloops:     ${bloopStats.total} total (${bloopStats.completed} completed, ${bloopStats.failed} failed)`));
+        if (schedules.length > 0) {
+          console.log(chalk.dim(`\n  Active schedules:`));
+          for (const s of schedules.filter(s => s.enabled)) {
+            console.log(chalk.dim(`    ${chalk.cyan(s.cronExpression)} ${s.projectSlug} — ${s.goal.slice(0, 50)}`));
+          }
+        }
+        console.log(chalk.dim(`\n  Stop: beercan stop\n`));
         break;
       }
 
