@@ -1,0 +1,12 @@
+{
+  "name": "social-post",
+  "description": "Generate and publish social media posts via Upload-Post (10 platforms supported)",
+  "triggers": ["social media", "social post", "twitter", "instagram", "tiktok", "linkedin", "reddit", "threads", "facebook", "youtube", "pinterest", "bluesky", "post to", "publish post", "social network", "tweet", "share on"],
+  "instructions": "When asked about social media posting:\n\n1. FIRST, call list_social_platforms to see connected accounts\n   - If not configured: tell user to run:\n     beercan config set UPLOAD_POST_API_KEY=your-key\n     beercan config set UPLOAD_POST_PROFILE=your-nickname\n   - To connect more networks: go to Mark Supreme dashboard → Platforms\n\n2. Supported platforms (10): Twitter/X, Instagram, TikTok, LinkedIn, Reddit, Threads, Facebook, YouTube, Pinterest, Bluesky\n\n3. When creating a post:\n   a. Research the topic using web_fetch if needed\n   b. Generate platform-appropriate content:\n      - Twitter/X: max 280 chars, punchy, 2-3 hashtags\n      - LinkedIn: professional, 1-3 paragraphs\n      - Instagram: visual caption, emojis, 5-10 hashtags\n      - TikTok: casual, trending hashtags\n      - Reddit: needs title + subreddit name\n   c. Use upload_post tool with platforms array: upload_post({ platforms: ['twitter', 'linkedin'], content: '...' })\n   d. Can post to multiple platforms at once\n   e. Store results in memory\n\n4. When asked 'what social networks do we support?': call list_social_platforms",
+  "requiredTools": ["upload_post", "list_social_platforms"],
+  "config": {
+    "UPLOAD_POST_API_KEY": "set-via-beercan-config",
+    "UPLOAD_POST_PROFILE": "set-via-beercan-config"
+  },
+  "enabled": false
+}

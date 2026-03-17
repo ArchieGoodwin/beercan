@@ -1,0 +1,9 @@
+{
+  "name": "daily-report",
+  "description": "Generate daily summary reports from web sources on a given topic",
+  "triggers": ["daily report", "daily briefing", "daily summary", "news summary", "daily digest"],
+  "instructions": "When generating a daily report:\n1. Use web_fetch to search multiple news sources for the topic\n2. Try at least 3-5 sources (RSS feeds, news sites, blogs)\n3. For each article found: extract title, source, date, and summary\n4. Write a structured markdown report with:\n   - Date/time header\n   - Executive summary (3-5 sentences)\n   - Individual article sections with links\n   - Key takeaways at the end\n5. Save the report as a .md file in the project directory\n6. Store key findings in memory for future reference",
+  "requiredTools": ["web_fetch", "write_file", "memory_store"],
+  "config": {},
+  "enabled": true
+}

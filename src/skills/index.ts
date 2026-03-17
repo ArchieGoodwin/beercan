@@ -33,8 +33,10 @@ export class SkillManager {
 
   constructor(private dataDir: string) {}
 
-  /** Load all skills from ~/.beercan/skills/ */
+  /** Load built-in + user skills */
   load(): void {
+    this.loadBuiltinSkills();
+
     const skillsDir = path.join(this.dataDir, "skills");
     if (!fs.existsSync(skillsDir)) return;
 
@@ -61,6 +63,79 @@ export class SkillManager {
         log.error("skills", `Failed to load skill: ${file}`, { error: err.message });
       }
     }
+  }
+
+  /** Register built-in skills that are always available */
+  private loadBuiltinSkills(): void {
+    const toolsDir = path.join(this.dataDir, "tools");
+    const skillsDir = path.join(this.dataDir, "skills");
+
+    this.skills.set("generate-tool", {
+      name: "generate-tool",
+      description: "Generate a custom tool file for BeerCan agents",
+      triggers: ["create a tool", "generate a tool", "make a tool", "new tool", "build a tool", "add a tool"],
+      instructions: [
+        `When asked to create/generate a custom tool:`,
+        ``,
+        `1. Ask what the tool should do if not clear from the request`,
+        `2. Generate a JavaScript ESM file with this EXACT structure:`,
+        ``,
+        `   export const definition = {`,
+        `     name: "tool_name",  // snake_case, descriptive`,
+        `     description: "What the tool does — agents read this to decide when to use it",`,
+        `     inputSchema: {`,
+        `       type: "object",`,
+        `       properties: { /* input params */ },`,
+        `       required: ["param1"],`,
+        `     },`,
+        `   };`,
+        ``,
+        `   export async function handler({ param1 }) {`,
+        `     // Tool logic — can use fetch(), process.env, etc.`,
+        `     return "string result that the agent sees";`,
+        `   }`,
+        ``,
+        `3. IMPORTANT: Write the file to: ${toolsDir}/<tool_name>.js`,
+        `4. The tool will be auto-loaded on next BeerCan restart`,
+        `5. For multi-tool files, export: export const tools = [{ definition, handler }, ...]`,
+        `6. Tools can access env vars via process.env for API keys`,
+        `7. Always return a string from the handler — that's what the agent sees`,
+      ].join("\n"),
+      requiredTools: ["write_file"],
+      config: {},
+      enabled: true,
+    });
+
+    this.skills.set("generate-skill", {
+      name: "generate-skill",
+      description: "Generate a skill configuration file for BeerCan",
+      triggers: ["create a skill", "generate a skill", "make a skill", "new skill", "build a skill", "add a skill"],
+      instructions: [
+        `When asked to create/generate a skill:`,
+        ``,
+        `1. Ask what the skill should do if not clear`,
+        `2. Generate a JSON file with this structure:`,
+        ``,
+        `   {`,
+        `     "name": "skill-name",`,
+        `     "description": "What this skill does",`,
+        `     "triggers": ["keyword1", "keyword2"],  // words that activate this skill`,
+        `     "instructions": "Step-by-step instructions for agents...",`,
+        `     "requiredTools": ["tool1", "tool2"],  // tools agents need`,
+        `     "config": { "API_KEY": "value" },  // env vars/config`,
+        `     "enabled": true`,
+        `   }`,
+        ``,
+        `3. IMPORTANT: Write the file to: ${skillsDir}/<skill-name>.json`,
+        `4. The skill will be auto-loaded on next BeerCan restart`,
+        `5. Triggers should be natural language phrases users might say`,
+        `6. Instructions tell agents HOW to accomplish the workflow step by step`,
+        `7. If the skill needs a custom tool, offer to generate that too`,
+      ].join("\n"),
+      requiredTools: ["write_file"],
+      config: {},
+      enabled: true,
+    });
   }
 
   /** Get all loaded skills */

@@ -48,6 +48,8 @@ CLI commands via `npm run beercan --` (or `beercan` if installed globally):
 - `trigger:add/list/remove` — event-based triggers
 - `mcp:add/list` — MCP server management per project
 - `tool:create/list/remove` — custom tool plugin management
+- `skill:create/list` — skill plugin management
+- `config set/get/list` — quick config management
 
 ## Architecture
 
@@ -83,6 +85,7 @@ CLI commands via `npm run beercan --` (or `beercan` if installed globally):
 - `src/chat/skippy-phrases.ts` — Randomized phrase pools (60+ phrases, 13 categories) with `pick()`, `addPhrases()`, `setPhrases()` API
 - `src/chat/intent.ts` — Two-tier intent parser (slash commands + LLM classification)
 - `src/chat/providers/` — Terminal, Telegram, Slack, WebSocket chat providers
+- `src/skills/index.ts` — `SkillManager`, skill loading, trigger matching, context injection
 - `~/.beercan/tools/` — Custom tool plugin directory (auto-loaded `.js` files)
 
 **Storage:** SQLite via better-sqlite3 + sqlite-vec extension. All data in `~/.beercan/orchestrator.db`. Per-project config in `~/.beercan/projects/<slug>/`. Structured logs in `~/.beercan/beercan.log`.
@@ -195,6 +198,16 @@ Provider-agnostic chat layer for interacting with BeerCan via natural language.
 **Custom tools:** Drop `.js` files in `~/.beercan/tools/`. Auto-loaded on startup. Custom tools are automatically available to all agent roles (appended to every role's allowedTools). Three export patterns supported: `{ definition, handler }`, `{ default: { definition, handler } }`, or `{ tools: [{ definition, handler }, ...] }`.
 
 **CLI:** `beercan tool:create <name>`, `beercan tool:list`, `beercan tool:remove <name>`.
+
+## Skills System
+
+Higher-level workflow recipes that orchestrate tools. Skills provide step-by-step instructions, trigger keywords, and config that are automatically injected into agent context when a bloop goal matches.
+
+- **Location:** `~/.beercan/skills/` (`.json` files)
+- **Auto-matching:** Goal text matched against skill `triggers` array
+- **Context injection:** Matched skill `instructions` appended to agent system prompt
+- **CLI:** `beercan skill:create <name>`, `beercan skill:list`
+- **Chat:** `/skills` to list, natural language triggers automatic
 
 ## Memory Architecture
 

@@ -20,6 +20,16 @@ beercan setup
 
 Interactive wizard that configures your API keys, models, and optional integrations (Cloudflare, Telegram, Slack). Creates `~/.beercan/.env`.
 
+## Config
+
+Quick config management without the full setup wizard:
+
+```bash
+beercan config set KEY=VALUE        # Set a config value
+beercan config get KEY              # Get a value (keys masked)
+beercan config list                 # Show all config
+```
+
 ## Quick Start
 
 ```bash
@@ -197,6 +207,35 @@ Three ways to extend BeerCan with tools:
 
 Custom tools are automatically available to all agent roles. No configuration needed.
 
+## Skills
+
+Skills are higher-level than tools — they orchestrate workflows with instructions, triggers, and config. Drop a `.json` file in `~/.beercan/skills/`.
+
+```bash
+beercan skill:create social-post    # Scaffold a skill template
+beercan skill:list                  # List installed skills
+```
+
+Example skill (`~/.beercan/skills/social-post.json`):
+```json
+{
+  "name": "social-post",
+  "description": "Generate and publish social media posts via Mark Supreme",
+  "triggers": ["social media", "twitter", "linkedin", "post to"],
+  "instructions": "1. Call list_social_platforms to check connections\n2. Generate platform-appropriate content\n3. Use upload_post tool to publish",
+  "requiredTools": ["upload_post", "list_social_platforms"],
+  "config": {
+    "UPLOAD_POST_API_URL": "https://api.marksupreme.com/v1",
+    "UPLOAD_POST_API_KEY": "your-key"
+  },
+  "enabled": true
+}
+```
+
+When a bloop goal matches a skill's triggers, the instructions are automatically injected into agent context. Skills + tools work together:
+- **Tools** = atomic API calls (post to Twitter, fetch a URL)
+- **Skills** = workflow recipes (research → generate → post to multiple platforms)
+
 ## Memory System
 
 4-layer hybrid RAG — all in SQLite:
@@ -274,6 +313,13 @@ BeerCan's conversational interface is provider-agnostic:
 
 All providers share the same ChatBridge — slash commands and natural language work everywhere.
 
+### Telegram Quick Setup
+
+1. Message `@BotFather` on Telegram → `/newbot` → get token
+2. `beercan config set BEERCAN_TELEGRAM_TOKEN=your-token`
+3. `beercan stop && beercan start`
+4. Message your bot — Skippy answers!
+
 ## Production Features
 
 - **Crash recovery** — stale "running" jobs auto-recovered on startup
@@ -304,6 +350,11 @@ beercan mcp:add <project> <name> <cmd> [args]
 beercan tool:create <name>              Scaffold a custom tool
 beercan tool:list                       List custom tools
 beercan tool:remove <name>              Remove a custom tool
+beercan skill:create <name>             Scaffold a skill template
+beercan skill:list                      List installed skills
+beercan config set KEY=VALUE            Set a config value
+beercan config get KEY                  Get a config value
+beercan config list                     Show all config
 beercan daemon                              Run scheduler + events
 beercan chat [project]                  Interactive Skippy chat
 beercan serve [port]                    API server (default: 3939)

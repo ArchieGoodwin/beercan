@@ -1,6 +1,6 @@
 {
   "name": "beercan",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "description": "Autonomous AI agent system — powered by Skippy the Magnificent.",
   "type": "module",
   "main": "dist/index.js",
@@ -11,6 +11,7 @@
   "files": [
     "dist",
     "src/dashboard",
+    "examples",
     "README.md",
     "LICENSE"
   ],
