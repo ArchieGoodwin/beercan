@@ -30,7 +30,7 @@ export const tools = [
           "To set up:",
           `1. Go to ${markSupremeUrl} → Platforms to connect your social networks`,
           "2. Get your API key from Upload-Post settings",
-          "3. Run these commands:",
+          "3. Run:",
           "   beercan config set UPLOAD_POST_API_KEY=your-key",
           "   beercan config set UPLOAD_POST_PROFILE=your-nickname",
         ].join("\n");
@@ -58,9 +58,7 @@ export const tools = [
         if (Array.isArray(accounts) && accounts.length === 0) {
           return [
             "No social networks connected yet.",
-            "",
-            `Go to ${markSupremeUrl} → Platforms to connect your accounts.`,
-            "",
+            `Go to ${markSupremeUrl} → Platforms to connect.`,
             "Supported: Twitter/X, Instagram, TikTok, LinkedIn, Reddit, Threads, Facebook, YouTube, Pinterest, Bluesky",
           ].join("\n");
         }
@@ -76,7 +74,7 @@ export const tools = [
         result += `\n\nManage connections: ${markSupremeUrl}`;
         return result;
       } catch (err) {
-        return `Cannot reach Upload-Post API: ${err.message}\nManage connections: ${markSupremeUrl}`;
+        return `Cannot reach Upload-Post API: ${err.message}\nManage at: ${markSupremeUrl}`;
       }
     },
   },
@@ -85,14 +83,14 @@ export const tools = [
   {
     definition: {
       name: "upload_post",
-      description: "Publish a text post to social media via Upload-Post. Supports: twitter/x, instagram, tiktok, linkedin, reddit, threads, facebook, youtube, pinterest, bluesky. Call list_social_platforms first to check connected accounts.",
+      description: "Publish a text post to social media via Upload-Post. Supports: x (twitter), instagram, tiktok, linkedin, reddit, threads, facebook, youtube, pinterest, bluesky. Call list_social_platforms first to check connected accounts. If a platform is not connected, skip it and post to the connected ones.",
       inputSchema: {
         type: "object",
         properties: {
           platforms: {
             type: "array",
             items: { type: "string" },
-            description: "Target platforms (e.g., ['twitter', 'linkedin']). Use 'x' or 'twitter' for Twitter.",
+            description: "Target platforms. Use these exact names: x, instagram, tiktok, linkedin, reddit, threads, facebook, youtube, pinterest, bluesky",
           },
           content: {
             type: "string",
@@ -100,11 +98,11 @@ export const tools = [
           },
           title: {
             type: "string",
-            description: "Optional title (used by Reddit, YouTube, some platforms)",
+            description: "Optional title (used by Reddit, YouTube)",
           },
           subreddit: {
             type: "string",
-            description: "Required for Reddit posts — the subreddit name without r/",
+            description: "Required for Reddit — subreddit name without r/",
           },
         },
         required: ["platforms", "content"],
@@ -121,37 +119,52 @@ export const tools = [
       }
 
       try {
-        const body = new URLSearchParams();
-        body.append("user", profile);
-        body.append("description", content);
-        if (title) body.append("title", title);
-        if (subreddit) body.append("subreddit", subreddit);
+        // Upload-Post API uses multipart/form-data with "platform[]" (singular!)
+        const formParts = [];
+        const boundary = "----BeerCan" + Date.now();
+
+        const addField = (name, value) => {
+          formParts.push(`--${boundary}\r\nContent-Disposition: form-data; name="${name}"\r\n\r\n${value}`);
+        };
+
+        addField("user", profile);
+        addField("description", content);
+        if (title) addField("title", title);
+        if (subreddit) addField("subreddit", subreddit);
+
+        // Each platform as separate "platform[]" field
         for (const p of platforms) {
-          body.append("platforms[]", p === "twitter" ? "x" : p);
+          const name = p === "twitter" ? "x" : p;
+          addField("platform[]", name);
         }
+
+        const body = formParts.join("\r\n") + `\r\n--${boundary}--\r\n`;
 
         const response = await fetch(`${apiUrl}/upload_text`, {
           method: "POST",
           headers: {
             "Authorization": `ApiKey ${apiKey}`,
-            "Accept": "application/json",
+            "Content-Type": `multipart/form-data; boundary=${boundary}`,
           },
           body,
         });
 
+        const responseText = await response.text();
+        let result;
+        try { result = JSON.parse(responseText); } catch { result = { raw: responseText }; }
+
         if (!response.ok) {
-          const err = await response.text();
-          return `ERROR: Upload-Post returned ${response.status}: ${err}`;
+          return `ERROR: Upload-Post returned ${response.status}: ${responseText}`;
         }
 
-        const result = await response.json();
         const platformList = platforms.join(", ");
 
         if (result.errors && Object.keys(result.errors).length > 0) {
-          return `Partial success posting to ${platformList}:\n${JSON.stringify(result.errors, null, 2)}`;
+          const successes = Object.entries(result).filter(([k, v]) => k !== "errors" && v);
+          return `Posted to some platforms. Errors: ${JSON.stringify(result.errors)}\nSuccesses: ${successes.map(([k]) => k).join(", ")}`;
         }
 
-        return `Post published to ${platformList}! ${result.id ? "ID: " + result.id : ""}`;
+        return `Post published to ${platformList}! Response: ${JSON.stringify(result)}`;
       } catch (err) {
         return `ERROR: Failed to publish: ${err.message}`;
       }

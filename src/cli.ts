@@ -472,19 +472,21 @@ async function main() {
 
   // ── All other commands need the engine ─────────────────────
 
-  // In chat mode, suppress all stdout during engine init
+  // Suppress stdout during engine init for chat and start (prevents JSON log noise)
   const origStdoutWrite = process.stdout.write.bind(process.stdout);
   const origStderrWrite = process.stderr.write.bind(process.stderr);
-  if (command === "chat") {
+  if (command === "chat" || command === "start") {
     process.stdout.write = (() => true) as any;
     process.stderr.write = (() => true) as any;
   }
 
   const engine = await new BeerCanEngine().init();
 
-  if (command === "chat") {
+  if (command === "chat" || command === "start") {
     process.stdout.write = origStdoutWrite;
     process.stderr.write = origStderrWrite;
+  }
+  if (command === "chat") {
     const { getLogger: getLog } = await import("./core/logger.js");
     getLog().setQuiet(true);
   }
@@ -1067,6 +1069,11 @@ Do NOT rewrite everything — make focused, incremental changes.`,
         const projects = engine.listProjects();
         const schedules = engine.getScheduler().listSchedules();
         const bloopStats = engine.getBloopStats();
+        const skills = engine.getSkillManager().getEnabledSkills();
+        const customToolsDir = path.join(gc().dataDir, "tools");
+        const customTools = fs.existsSync(customToolsDir)
+          ? fs.readdirSync(customToolsDir).filter((f: string) => f.endsWith(".js") || f.endsWith(".mjs"))
+          : [];
 
         console.log(chalk.bold.blue(`\n🍺 BeerCan v${version} started`));
         console.log(chalk.dim(`  PID:        ${child.pid}`));
@@ -1075,10 +1082,24 @@ Do NOT rewrite everything — make focused, incremental changes.`,
         console.log(chalk.dim(`  Projects:   ${projects.length}`));
         console.log(chalk.dim(`  Schedules:  ${schedules.length}${schedules.length > 0 ? ` (${schedules.filter(s => s.enabled).length} active)` : ""}`));
         console.log(chalk.dim(`  Bloops:     ${bloopStats.total} total (${bloopStats.completed} completed, ${bloopStats.failed} failed)`));
+        console.log(chalk.dim(`  Skills:     ${skills.length} active`));
+        console.log(chalk.dim(`  Tools:      13 built-in + ${customTools.length} custom`));
         if (schedules.length > 0) {
           console.log(chalk.dim(`\n  Active schedules:`));
           for (const s of schedules.filter(s => s.enabled)) {
             console.log(chalk.dim(`    ${chalk.cyan(s.cronExpression)} ${s.projectSlug} — ${s.goal.slice(0, 50)}`));
+          }
+        }
+        if (skills.length > 0) {
+          console.log(chalk.dim(`\n  Active skills:`));
+          for (const s of skills) {
+            console.log(chalk.dim(`    ${chalk.cyan(s.name)} — ${s.description.slice(0, 50)}`));
+          }
+        }
+        if (customTools.length > 0) {
+          console.log(chalk.dim(`\n  Custom tools:`));
+          for (const t of customTools) {
+            console.log(chalk.dim(`    ${chalk.cyan(t.replace(/\.(js|mjs)$/, ""))}`));
           }
         }
         console.log(chalk.dim(`\n  Stop: beercan stop\n`));
