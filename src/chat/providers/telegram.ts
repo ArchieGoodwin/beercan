@@ -69,13 +69,10 @@ export class TelegramProvider implements ChatProvider {
   ): Promise<string> {
     if (!this.bot) throw new Error("Telegram bot not started");
 
-    const extra =
-      opts?.format === "markdown" ? { parse_mode: "MarkdownV2" as const } : {};
-
+    // Use plain text by default — Telegram's Markdown is strict and breaks easily
     const result = await this.bot.telegram.sendMessage(
       channelId,
       text,
-      extra,
     );
     return String(result.message_id);
   }

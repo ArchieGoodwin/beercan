@@ -85,7 +85,8 @@ async function runSetup(): Promise<void> {
 
   console.log(chalk.bold.yellow("\n🍺 BeerCan Setup\n"));
   console.log(chalk.dim("  I'll walk you through configuring BeerCan."));
-  console.log(chalk.dim(`  Config will be saved to: ${envPath}\n`));
+  console.log(chalk.dim(`  Config saved to: ${envPath}`));
+  console.log(chalk.dim("  Press Enter to keep existing values.\n"));
 
   // Load existing env if present
   const existing: Record<string, string> = {};
@@ -203,6 +204,93 @@ async function runStop(): Promise<void> {
   }
 }
 
+// ── Config Command (no engine needed) ────────────────────────
+
+async function runConfigCommand(args: string[]): Promise<void> {
+  const os = await import("os");
+  const dataDir = process.env.BEERCAN_DATA_DIR ?? path.join(os.default.homedir(), ".beercan");
+  const envPath = path.join(dataDir, ".env");
+
+  const sub = args[1];
+
+  if (sub === "set" && args[2]) {
+    // beercan config set KEY=VALUE
+    const eqIdx = args[2].indexOf("=");
+    if (eqIdx < 0) {
+      console.log(chalk.red("Usage: beercan config set KEY=VALUE"));
+      return;
+    }
+    const key = args[2].slice(0, eqIdx);
+    const value = args[2].slice(eqIdx + 1);
+
+    // Read existing
+    let content = fs.existsSync(envPath) ? fs.readFileSync(envPath, "utf-8") : "";
+    const regex = new RegExp(`^${key}=.*$`, "m");
+
+    if (regex.test(content)) {
+      content = content.replace(regex, `${key}=${value}`);
+    } else {
+      content = content.trimEnd() + `\n${key}=${value}\n`;
+    }
+
+    fs.mkdirSync(dataDir, { recursive: true });
+    fs.writeFileSync(envPath, content);
+    console.log(chalk.green(`✓ ${key} set`));
+    return;
+  }
+
+  if (sub === "get" && args[2]) {
+    // beercan config get KEY
+    if (!fs.existsSync(envPath)) {
+      console.log(chalk.dim("No config file found."));
+      return;
+    }
+    const content = fs.readFileSync(envPath, "utf-8");
+    const match = content.match(new RegExp(`^${args[2]}=(.*)$`, "m"));
+    if (match) {
+      const val = match[1];
+      const display = args[2].toLowerCase().includes("key") || args[2].toLowerCase().includes("secret")
+        ? val.slice(0, 12) + "..."
+        : val;
+      console.log(`${args[2]}=${display}`);
+    } else {
+      console.log(chalk.dim(`${args[2]} is not set`));
+    }
+    return;
+  }
+
+  if (sub === "list" || !sub) {
+    // beercan config list
+    if (!fs.existsSync(envPath)) {
+      console.log(chalk.dim("No config file. Run: beercan setup"));
+      return;
+    }
+    const content = fs.readFileSync(envPath, "utf-8");
+    for (const line of content.split("\n")) {
+      if (!line.trim() || line.startsWith("#")) {
+        console.log(chalk.dim(line));
+        continue;
+      }
+      const eqIdx = line.indexOf("=");
+      if (eqIdx > 0) {
+        const k = line.slice(0, eqIdx);
+        const v = line.slice(eqIdx + 1);
+        const masked = k.toLowerCase().includes("key") || k.toLowerCase().includes("secret") || k.toLowerCase().includes("token")
+          ? v.slice(0, 12) + "..."
+          : v;
+        console.log(`${chalk.cyan(k)}=${masked}`);
+      }
+    }
+    return;
+  }
+
+  console.log(chalk.bold("Config Commands:"));
+  console.log(chalk.cyan("  beercan config list") + chalk.dim("                 Show all config"));
+  console.log(chalk.cyan("  beercan config set KEY=VALUE") + chalk.dim("         Set a config value"));
+  console.log(chalk.cyan("  beercan config get KEY") + chalk.dim("               Get a config value"));
+  console.log(chalk.cyan("  beercan setup") + chalk.dim("                       Interactive wizard"));
+}
+
 // ── Tool Commands (no engine needed) ─────────────────────────
 
 async function runToolCommand(command: string, args: string[]): Promise<void> {
@@ -287,6 +375,68 @@ export async function handler(params) {
   }
 }
 
+// ── Skill Commands (no engine needed) ────────────────────────
+
+async function runSkillCommand(command: string, args: string[]): Promise<void> {
+  const config = getConfig();
+  const skillsDir = path.join(config.dataDir, "skills");
+
+  if (command === "skill:create") {
+    const skillName = args[1];
+    if (!skillName) {
+      console.log(chalk.red("Usage: beercan skill:create <name>"));
+      console.log(chalk.dim("Creates a skill template in ~/.beercan/skills/<name>.json"));
+      return;
+    }
+    fs.mkdirSync(skillsDir, { recursive: true });
+    const skillPath = path.join(skillsDir, `${skillName}.json`);
+    if (fs.existsSync(skillPath)) {
+      console.log(chalk.yellow(`Skill already exists: ${skillPath}`));
+      return;
+    }
+    const template = {
+      name: skillName,
+      description: `Describe what the ${skillName} skill does`,
+      triggers: ["keyword1", "keyword2"],
+      instructions: [
+        `Step-by-step instructions for agents using this skill:`,
+        `1. First, do this`,
+        `2. Then, do that`,
+        `3. Finally, deliver the result`,
+      ].join("\n"),
+      requiredTools: [],
+      config: {},
+      enabled: true,
+    };
+    fs.writeFileSync(skillPath, JSON.stringify(template, null, 2));
+    console.log(chalk.green(`✓ Skill template created: ${skillPath}`));
+    console.log(chalk.dim("  Edit the file to define triggers, instructions, and config."));
+  }
+
+  if (command === "skill:list") {
+    if (!fs.existsSync(skillsDir)) {
+      console.log(chalk.dim("No skills. Create one with: beercan skill:create <name>"));
+      return;
+    }
+    const files = fs.readdirSync(skillsDir).filter((f: string) => f.endsWith(".json"));
+    if (files.length === 0) {
+      console.log(chalk.dim("No skills found in ~/.beercan/skills/"));
+      return;
+    }
+    console.log(chalk.bold("Skills:"));
+    for (const f of files) {
+      try {
+        const skill = JSON.parse(fs.readFileSync(path.join(skillsDir, f), "utf-8"));
+        const status = skill.enabled !== false ? chalk.green("●") : chalk.red("○");
+        console.log(`  ${status} ${chalk.bold(skill.name)} — ${skill.description ?? ""}`);
+        console.log(chalk.dim(`    Triggers: ${(skill.triggers ?? []).join(", ")}`));
+      } catch {
+        console.log(chalk.dim(`  ? ${f} (invalid JSON)`));
+      }
+    }
+  }
+}
+
 // ── CLI Commands ─────────────────────────────────────────────
 
 async function main() {
@@ -305,8 +455,18 @@ async function main() {
     return;
   }
 
+  if (command === "config") {
+    await runConfigCommand(args);
+    return;
+  }
+
   if (command === "tool:create" || command === "tool:list" || command === "tool:remove") {
     await runToolCommand(command, args);
+    return;
+  }
+
+  if (command === "skill:create" || command === "skill:list") {
+    await runSkillCommand(command, args);
     return;
   }
 

@@ -14,6 +14,7 @@ import { MemoryManager } from "./memory/index.js";
 import { MCPManager } from "./mcp/index.js";
 import { Scheduler } from "./scheduler/index.js";
 import { EventManager } from "./events/index.js";
+import { SkillManager } from "./skills/index.js";
 import type { Project, Bloop } from "./schemas.js";
 import {
   readFileDefinition, readFileHandler,
@@ -44,6 +45,7 @@ export class BeerCanEngine {
   private mcpManager: MCPManager;
   private scheduler!: Scheduler;
   private eventManager!: EventManager;
+  private skillManager: SkillManager;
 
   constructor() {
     // Initialize logger
@@ -59,6 +61,8 @@ export class BeerCanEngine {
     this.tools = new ToolRegistry();
     this.memoryManager = new MemoryManager(this.db);
     this.mcpManager = new MCPManager();
+    this.skillManager = new SkillManager(this.config.dataDir);
+    this.skillManager.load();
     this.registerBuiltinTools();
 
     this.logger.info("engine", "BeerCanEngine initialized", { dataDir: this.config.dataDir });
@@ -234,6 +238,12 @@ export class BeerCanEngine {
 
     await this.mcpManager.connectAll(opts.projectSlug, this.tools);
 
+    // Inject skill context if any skills match the goal
+    const skillContext = this.skillManager.buildSkillContext(opts.goal);
+    if (skillContext) {
+      opts = { ...opts, extraContext: (opts.extraContext ?? "") + "\n" + skillContext };
+    }
+
     let team: BloopTeam;
     let gatekeeperResult: GatekeeperResult | null = null;
 
@@ -387,6 +397,10 @@ export class BeerCanEngine {
 
   getMCPManager(): MCPManager {
     return this.mcpManager;
+  }
+
+  getSkillManager(): SkillManager {
+    return this.skillManager;
   }
 
   getDB(): BeerCanDB {

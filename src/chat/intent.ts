@@ -167,6 +167,9 @@ function parseSlashCommand(text: string): ChatIntent | null {
       return { type: "conversation", text: "Usage: /schedule list [project] OR /schedule add <project> \"<cron>\" <goal>" };
     }
 
+    case "/skills":
+      return { type: "list_skills" };
+
     case "/help":
     case "/?":
       return { type: "help" };

@@ -185,6 +185,7 @@ export function formatHelp(): string {
     `  /cancel <id>            — Cancel a job (or /c)`,
     `  /schedule list          — View scheduled tasks`,
     `  /schedule add <proj> "<cron>" <goal> — Add a schedule`,
+    `  /skills                 — List installed skills`,
     `  /help (or /?)           — You're reading it, genius`,
     ``,
     `**Quick shortcuts:**`,

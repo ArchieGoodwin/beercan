@@ -161,6 +161,9 @@ export class ChatBridge {
         case "list_schedules":
           await this.handleListSchedules(provider, msg, intent);
           break;
+        case "list_skills":
+          await this.handleListSkills(provider, msg);
+          break;
         case "help":
           await this.handleHelp(provider, msg);
           break;
@@ -288,7 +291,14 @@ export class ChatBridge {
     msg: ChatMessage,
     intent: Extract<ChatIntent, { type: "bloop_result" }>,
   ): Promise<void> {
-    const bloop = this.engine.getBloop(intent.bloopId);
+    // Support partial ID matching (e.g., "a3ebfc4b" instead of full UUID)
+    let bloop = this.engine.getBloop(intent.bloopId);
+    if (!bloop) {
+      for (const p of this.engine.listProjects()) {
+        const match = this.engine.getProjectBloops(p.slug).find((b) => b.id.startsWith(intent.bloopId));
+        if (match) { bloop = match; break; }
+      }
+    }
 
     if (!bloop) {
       await this.sendWithContext(provider, msg, pick("not_found"));
@@ -507,6 +517,26 @@ export class ChatBridge {
       const status = s.enabled ? "●" : "○";
       lines.push(`${status} \`${s.cronExpression}\` — ${s.goal.slice(0, 60)}`);
       lines.push(`  Project: ${s.projectSlug} | Last: ${s.lastRunAt ?? "never"} | ID: \`${s.id.slice(0, 8)}\``);
+    }
+    await this.sendWithContext(provider, msg, lines.join("\n"), { format: "markdown" });
+  }
+
+  private async handleListSkills(
+    provider: ChatProvider,
+    msg: ChatMessage,
+  ): Promise<void> {
+    const skills = this.engine.getSkillManager().listSkills();
+    if (skills.length === 0) {
+      await this.sendWithContext(provider, msg, "No skills installed. Create one with `beercan skill:create <name>` and drop it in `~/.beercan/skills/`.");
+      return;
+    }
+
+    const lines = [`**Skills** (${skills.length})`, ""];
+    for (const s of skills) {
+      const status = s.enabled ? "●" : "○";
+      lines.push(`${status} **${s.name}** — ${s.description}`);
+      lines.push(`  Triggers: ${s.triggers.join(", ")}`);
+      if (s.requiredTools.length > 0) lines.push(`  Tools: ${s.requiredTools.join(", ")}`);
     }
     await this.sendWithContext(provider, msg, lines.join("\n"), { format: "markdown" });
   }
