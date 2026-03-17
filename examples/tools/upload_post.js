@@ -53,25 +53,25 @@ export const tools = [
         }
 
         const data = await response.json();
-        const accounts = data.social_accounts || data.platforms || data.connected || [];
+        // API returns { success, profile: { social_accounts: { platform: { handle, ... } } } }
+        const socialAccounts = data?.profile?.social_accounts || data?.social_accounts || {};
+        const platformNames = Object.keys(socialAccounts);
 
-        if (Array.isArray(accounts) && accounts.length === 0) {
+        if (platformNames.length === 0) {
           return [
             "No social networks connected yet.",
             `Go to ${markSupremeUrl} → Platforms to connect.`,
-            "Supported: Twitter/X, Instagram, TikTok, LinkedIn, Reddit, Threads, Facebook, YouTube, Pinterest, Bluesky",
+            "Supported: x (Twitter), instagram, tiktok, linkedin, reddit, threads, facebook, youtube, pinterest, bluesky",
           ].join("\n");
         }
 
-        let result = `Connected platforms for profile "${profile}":\n`;
-        if (Array.isArray(accounts)) {
-          for (const a of accounts) {
-            result += `\n● ${a.platform || a.name} — ${a.username || a.handle || "connected"}`;
-          }
-        } else {
-          result += JSON.stringify(accounts, null, 2);
+        let result = `Connected platforms for profile "${profile}" (${platformNames.length}):\n`;
+        for (const [platform, info] of Object.entries(socialAccounts)) {
+          const details = info;
+          result += `\n● ${platform} — @${details.handle || details.display_name || "connected"}`;
         }
-        result += `\n\nManage connections: ${markSupremeUrl}`;
+        result += `\n\nUse these exact platform names when posting: ${platformNames.join(", ")}`;
+        result += `\nManage connections: ${markSupremeUrl}`;
         return result;
       } catch (err) {
         return `Cannot reach Upload-Post API: ${err.message}\nManage at: ${markSupremeUrl}`;
@@ -128,8 +128,7 @@ export const tools = [
         };
 
         addField("user", profile);
-        addField("description", content);
-        if (title) addField("title", title);
+        addField("title", content);  // "title" is the main post text for Upload-Post API
         if (subreddit) addField("subreddit", subreddit);
 
         // Each platform as separate "platform[]" field
