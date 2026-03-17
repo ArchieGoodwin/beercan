@@ -69,12 +69,33 @@ export class TelegramProvider implements ChatProvider {
   ): Promise<string> {
     if (!this.bot) throw new Error("Telegram bot not started");
 
-    // Use plain text by default — Telegram's Markdown is strict and breaks easily
-    const result = await this.bot.telegram.sendMessage(
-      channelId,
-      text,
-    );
-    return String(result.message_id);
+    // Strip markdown to plain text — Telegram's Markdown parser is very strict
+    const clean = this.stripMarkdown(text);
+
+    // Telegram has 4096 char limit per message — split if needed
+    const chunks = [];
+    for (let i = 0; i < clean.length; i += 4000) {
+      chunks.push(clean.slice(i, i + 4000));
+    }
+
+    let lastMsgId = "";
+    for (const chunk of chunks) {
+      const result = await this.bot.telegram.sendMessage(channelId, chunk);
+      lastMsgId = String(result.message_id);
+    }
+    return lastMsgId;
+  }
+
+  /** Convert markdown to clean plain text for Telegram */
+  private stripMarkdown(text: string): string {
+    return text
+      .replace(/^#{1,3}\s+(.+)$/gm, "▸ $1")      // headers → prefix
+      .replace(/\*\*(.+?)\*\*/g, "$1")              // **bold** → plain
+      .replace(/\*([^*]+)\*/g, "$1")                // *italic* → plain
+      .replace(/`([^`]+)`/g, "$1")                  // `code` → plain
+      .replace(/^-{3,}$/gm, "────────────────")    // --- → line
+      .replace(/^>\s?(.*)$/gm, "│ $1")             // > quote → bar
+      .replace(/^\s*[-*]\s/gm, "  • ");            // bullets → •
   }
 
   async editMessage(

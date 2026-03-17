@@ -30,6 +30,7 @@ export class ChatBridge {
   private client: Anthropic;
   private providers: ChatProvider[] = [];
   private channelContexts = new Map<string, ChannelContext>();
+  private chatInitiatedBloops = new Set<string>();
   private startTime = Date.now();
 
   constructor(engine: BeerCanEngine, client: Anthropic) {
@@ -70,6 +71,12 @@ export class ChatBridge {
   }
 
   private async deliverBloopResult(data: { bloopId: string; goal: string; status: string; tokensUsed: number }): Promise<void> {
+    // Skip if this bloop was started from chat — it already got delivered via .then()
+    if (this.chatInitiatedBloops.has(data.bloopId)) {
+      this.chatInitiatedBloops.delete(data.bloopId);
+      return;
+    }
+
     const bloop = this.engine.getBloop(data.bloopId);
     if (!bloop) return;
 
@@ -220,6 +227,7 @@ export class ChatBridge {
         }
       },
     }).then(async (bloop) => {
+      this.chatInitiatedBloops.add(bloop.id); // Prevent duplicate from EventBus
       this.notifyBloopState(provider, "end");
       this.channelContexts.set(channelId, {
         ...this.channelContexts.get(channelId),

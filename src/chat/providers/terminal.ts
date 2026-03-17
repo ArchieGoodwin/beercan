@@ -107,12 +107,20 @@ export class TerminalProvider implements ChatProvider {
   /** Convert markdown to terminal-styled text. */
   private renderMarkdown(text: string): string {
     return text
+      // ### headers → bold + underline
+      .replace(/^#{1,3}\s+(.+)$/gm, (_m, t) => chalk.bold.underline(t))
       // **bold** → chalk.bold
       .replace(/\*\*(.+?)\*\*/g, (_m, t) => chalk.bold(t))
+      // *italic* → chalk.italic
+      .replace(/\*([^*]+)\*/g, (_m, t) => chalk.italic(t))
       // `code` → chalk.cyan
       .replace(/`([^`]+)`/g, (_m, t) => chalk.cyan(t))
-      // Remove any remaining markdown artifacts
-      .replace(/^#+\s+/gm, "");
+      // --- horizontal rule → dim line
+      .replace(/^-{3,}$/gm, chalk.dim("─".repeat(40)))
+      // > blockquote → dim with bar
+      .replace(/^>\s?(.*)$/gm, (_m, t) => chalk.dim("│ ") + t)
+      // - bullet → styled bullet
+      .replace(/^(\s*)- /gm, "$1  • ");
   }
 
   async editMessage(
