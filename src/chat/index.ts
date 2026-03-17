@@ -16,10 +16,19 @@ import type { BloopEvent } from "../core/runner.js";
 
 // ── Channel Context ────────────────────────────────────────────
 
+interface ChatHistoryEntry {
+  role: "user" | "assistant";
+  text: string;
+  timestamp: string;
+}
+
 interface ChannelContext {
   lastProjectSlug?: string;
   lastBloopId?: string;
+  history?: ChatHistoryEntry[];
 }
+
+const MAX_HISTORY = 20; // Keep last 20 messages per channel
 
 // ── ChatBridge ─────────────────────────────────────────────────
 // Connects chat providers to the BeerCan engine.
@@ -54,7 +63,8 @@ export class ChatBridge {
 
   /** Set default project context for a channel (e.g., from CLI arg). */
   setDefaultProject(channelId: string, projectSlug: string): void {
-    this.channelContexts.set(channelId, { lastProjectSlug: projectSlug });
+    const existing = this.getOrCreateContext(channelId);
+    existing.lastProjectSlug = projectSlug;
     for (const provider of this.providers) {
       this.updateProviderContext(provider, projectSlug);
     }
@@ -121,8 +131,30 @@ export class ChatBridge {
 
   // ── Message Handler ────────────────────────────────────────
 
+  private getOrCreateContext(channelId: string): ChannelContext {
+    let ctx = this.channelContexts.get(channelId);
+    if (!ctx) {
+      ctx = { history: [] };
+      this.channelContexts.set(channelId, ctx);
+    }
+    if (!ctx.history) ctx.history = [];
+    return ctx;
+  }
+
+  private recordMessage(ctx: ChannelContext, role: "user" | "assistant", text: string): void {
+    if (!ctx.history) ctx.history = [];
+    ctx.history.push({ role, text: text.slice(0, 500), timestamp: new Date().toISOString() });
+    if (ctx.history.length > MAX_HISTORY) {
+      ctx.history = ctx.history.slice(-MAX_HISTORY);
+    }
+  }
+
   private async handleMessage(provider: ChatProvider, msg: ChatMessage): Promise<void> {
-    const ctx = this.channelContexts.get(msg.channelId) ?? {};
+    const ctx = this.getOrCreateContext(msg.channelId);
+
+    // Record user message
+    this.recordMessage(ctx, "user", msg.text);
+
     let intent: ChatIntent;
 
     try {
@@ -194,11 +226,9 @@ export class ChatBridge {
     msg: ChatMessage,
     intent: Extract<ChatIntent, { type: "run_bloop" }>,
   ): Promise<void> {
-    // Send initial message
-    await provider.sendMessage(
-      msg.channelId,
+    // Send initial message (with context badge for non-terminal providers)
+    await this.sendWithContext(provider, msg,
       `${pick("bloop_starting", { project: intent.projectSlug })}\nGoal: ${intent.goal}`,
-      { replyTo: msg.id },
     );
 
     // Update context immediately
@@ -223,7 +253,11 @@ export class ChatBridge {
         if (event.type === "tool_call" || event.type === "tool_result" || event.type === "agent_message") return;
         const line = formatBloopEvent(event);
         if (line) {
-          provider.sendMessage(channelId, chalk.dim(`  ${line}`)).catch(() => {});
+          // Add project badge for non-terminal providers
+          const ctx = this.channelContexts.get(channelId);
+          const hasPrompt = "setProjectContext" in provider;
+          const prefix = (!hasPrompt && ctx?.lastProjectSlug) ? `[${ctx.lastProjectSlug}] ` : "  ";
+          provider.sendMessage(channelId, `${prefix}${line}`).catch(() => {});
         }
       },
     }).then(async (bloop) => {
@@ -466,11 +500,13 @@ export class ChatBridge {
     text: string,
     opts?: SendOpts,
   ): Promise<string> {
-    const ctx = this.channelContexts.get(msg.channelId);
-    const hasPrompt = "setProjectContext" in provider; // terminal has it
+    const ctx = this.getOrCreateContext(msg.channelId);
+    const hasPrompt = "setProjectContext" in provider;
     if (!hasPrompt && ctx?.lastProjectSlug) {
       text = `\`[${ctx.lastProjectSlug}]\` ${text}`;
     }
+    // Record assistant response in conversation history
+    this.recordMessage(ctx, "assistant", text);
     return provider.sendMessage(msg.channelId, text, { ...opts, replyTo: opts?.replyTo ?? msg.id });
   }
 

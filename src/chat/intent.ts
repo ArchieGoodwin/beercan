@@ -15,7 +15,7 @@ import { SKIPPY_INTENT_PROMPT } from "./skippy.js";
 export async function parseIntent(
   client: Anthropic,
   text: string,
-  ctx: { lastProjectSlug?: string },
+  ctx: { lastProjectSlug?: string; history?: Array<{ role: string; text: string }> },
   engine: BeerCanEngine,
 ): Promise<ChatIntent> {
   const trimmed = text.trim();
@@ -249,7 +249,7 @@ const CLASSIFY_INTENT_TOOL: Anthropic.Tool = {
 async function classifyWithLLM(
   client: Anthropic,
   text: string,
-  ctx: { lastProjectSlug?: string },
+  ctx: { lastProjectSlug?: string; history?: Array<{ role: string; text: string }> },
   engine: BeerCanEngine,
 ): Promise<ChatIntent> {
   const config = getConfig();
@@ -261,6 +261,12 @@ async function classifyWithLLM(
     ? projects.map((p) => `- ${p.slug} (${p.name})`).join("\n")
     : "(no projects exist yet)";
 
+  // Build recent conversation summary for context
+  const recentHistory = (ctx.history || []).slice(-10);
+  const historySummary = recentHistory.length > 0
+    ? recentHistory.map((h) => `${h.role}: ${h.text.slice(0, 150)}`).join("\n")
+    : "";
+
   const systemPrompt = [
     SKIPPY_INTENT_PROMPT,
     "",
@@ -268,6 +274,8 @@ async function classifyWithLLM(
     projectList,
     "",
     ctx.lastProjectSlug ? `Current context project: ${ctx.lastProjectSlug}` : "No context project set.",
+    "",
+    historySummary ? `Recent conversation:\n${historySummary}` : "",
     "",
     "Intent types:",
     "- run_bloop: user wants to run a task/bloop. Requires projectSlug and goal.",
@@ -294,7 +302,14 @@ async function classifyWithLLM(
       system: systemPrompt,
       tools: [CLASSIFY_INTENT_TOOL],
       tool_choice: { type: "tool", name: "classify_intent" },
-      messages: [{ role: "user", content: text }],
+      messages: [
+        // Include recent conversation for multi-turn context
+        ...recentHistory.slice(-6).map((h) => ({
+          role: h.role as "user" | "assistant",
+          content: h.text.slice(0, 200),
+        })),
+        { role: "user" as const, content: text },
+      ],
     });
 
     const toolBlock = response.content.find(
