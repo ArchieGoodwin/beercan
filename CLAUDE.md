@@ -162,6 +162,8 @@ Provider-agnostic chat layer for interacting with BeerCan via natural language.
 
 **Shortcuts:** `#` for projects (`#slug` switch, `#slug goal` run), `@` for bloops (`@id` result), `##` exit project context.
 
+**Conversation memory:** Last 20 messages per channel stored and passed to LLM for multi-turn context. Skippy can reference earlier messages in the same conversation.
+
 **Slash commands:** `/run <project> <goal>`, `/status`, `/projects`, `/history [project]`, `/result <id>`, `/cancel <id>`, `/help`
 
 **Natural language:** Falls back to Haiku LLM call for intent classification — "analyze the test coverage" → run_bloop.

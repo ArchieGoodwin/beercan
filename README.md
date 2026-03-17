@@ -88,6 +88,7 @@ Uptime: 2h 15m | Projects: 1 | Running: 0
 ```
 
 Natural language or slash commands — Skippy understands both.
+Skippy remembers your conversation — refer to previous messages and he'll follow along.
 
 ### Shortcuts
 
@@ -331,6 +332,9 @@ All providers share the same ChatBridge — slash commands and natural language 
 - **Interactive setup** — `beercan setup` wizard for first-time configuration
 - **Skippy personality** — randomized phrase pools with 60+ responses across 13 categories
 - **Status dashboard** — live web UI at `beercan-site/status.html`
+- **Conversation memory** — Skippy remembers last 20 messages per chat channel for multi-turn context
+- **Skills system** — workflow recipes with trigger matching and context injection (`~/.beercan/skills/`)
+- **Auto version badge** — landing page auto-fetches latest version from npm
 
 ## CLI Reference
 
