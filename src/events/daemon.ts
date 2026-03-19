@@ -4,6 +4,7 @@ import type { Scheduler } from "../scheduler/scheduler.js";
 import type { EventManager } from "./index.js";
 import { registerStatusApi } from "../api/index.js";
 import { createAnthropicClient } from "../client.js";
+import { HeartbeatManager } from "../core/heartbeat.js";
 
 /**
  * Start the BeerCan daemon: runs scheduler + event system + chat providers.
@@ -24,6 +25,14 @@ export async function startDaemon(
 
   // Start event system
   await eventManager.start();
+
+  // Start heartbeat system
+  const heartbeat = new HeartbeatManager(
+    engine.getDB(),
+    engine,
+    eventManager.getEventBus(),
+  );
+  heartbeat.init();
 
   // Start chat providers (if configured)
   let chatBridge: any = null;
@@ -70,6 +79,7 @@ export async function startDaemon(
   const shutdown = async () => {
     console.log(chalk.dim("\nShutting down..."));
     if (chatBridge) await chatBridge.stop();
+    heartbeat.stop();
     scheduler.stop();
     await eventManager.stop();
     engine.close();

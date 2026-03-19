@@ -165,12 +165,12 @@ describe("Built-in roles", () => {
 });
 
 describe("Role templates", () => {
-  it("has 9 role templates", () => {
+  it("has 11 role templates", () => {
     const ids = Object.keys(ROLE_TEMPLATES);
-    expect(ids).toHaveLength(9);
+    expect(ids).toHaveLength(11);
     expect(ids.sort()).toEqual([
       "analyst", "architect", "data_processor", "devops",
-      "editor", "planner", "researcher", "summarizer", "writer",
+      "editor", "heartbeat", "planner", "researcher", "summarizer", "verifier", "writer",
     ]);
   });
 

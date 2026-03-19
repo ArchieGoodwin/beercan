@@ -8,6 +8,7 @@ import { MemoryManager } from "../memory/index.js";
 import type { Bloop, BloopMessage, ToolCallRecord, Project } from "../schemas.js";
 import type { AgentRole, BloopTeam } from "./roles.js";
 import { BUILTIN_ROLES, PRESET_TEAMS } from "./roles.js";
+import { ReflectionEngine, shouldReflect } from "./reflection.js";
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -41,14 +42,16 @@ export class BloopRunner {
   private db: BeerCanDB;
   private tools: ToolRegistry;
   private memory: MemoryManager;
+  private reflectionEngine: ReflectionEngine | null;
   private roles: Map<string, AgentRole>;
   private currentBloopCtx: { bloopId: string; projectId: string; projectSlug: string } | null = null;
 
-  constructor(db: BeerCanDB, tools: ToolRegistry, client: Anthropic, memory: MemoryManager) {
+  constructor(db: BeerCanDB, tools: ToolRegistry, client: Anthropic, memory: MemoryManager, reflectionEngine?: ReflectionEngine) {
     this.client = client;
     this.db = db;
     this.tools = tools;
     this.memory = memory;
+    this.reflectionEngine = reflectionEngine ?? null;
 
     // Load built-in roles
     this.roles = new Map(Object.entries(BUILTIN_ROLES));
@@ -149,6 +152,15 @@ export class BloopRunner {
 
       // Store result in vector memory for future retrieval
       await this.memory.storeBloopResult(bloop, project.slug);
+
+      // Post-bloop reflection (opt-in, lightweight Haiku call)
+      if (this.reflectionEngine && shouldReflect(bloop, project)) {
+        try {
+          await this.reflectionEngine.reflect(bloop, project.slug);
+        } catch (err: any) {
+          console.warn(`[reflection] Failed: ${err.message}`);
+        }
+      }
 
       onEvent?.({ type: "complete", result });
       return bloop;
@@ -467,6 +479,10 @@ export class BloopRunner {
     "read_file", "write_file", "list_directory", "exec_command",
     "web_fetch", "http_request", "send_notification",
     "memory_search", "memory_store", "memory_update", "memory_link", "memory_query_graph", "memory_scratch",
+    "spawn_bloop", "get_bloop_result", "list_child_bloops", "list_projects", "search_cross_project", "search_previous_attempts",
+    "create_schedule", "create_trigger", "list_schedules", "list_triggers", "remove_schedule", "remove_trigger",
+    "create_skill", "update_skill", "list_skills", "update_project_context",
+    "register_tool_from_file", "register_skill_from_bloop", "verify_and_integrate",
   ]);
 
   private resolveTools(

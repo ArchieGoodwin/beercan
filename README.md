@@ -2,7 +2,7 @@
 
 Autonomous AI agent system — powered by Skippy the Magnificent.
 
-Sandboxed projects, multi-agent pipelines with dynamic team composition, 4-layer hybrid RAG memory, conversational chat interface (terminal, Telegram, Slack, WebSocket), REST API with auth, and a magnificently sarcastic AI overlord.
+Sandboxed projects, multi-agent pipelines with dynamic team composition, 4-layer hybrid RAG memory, self-spawning agents with cross-project collaboration, heartbeat awareness loops, post-bloop reflection & learning, build-verify-integrate pipelines, conversational chat interface (terminal, Telegram, Slack, WebSocket), REST API with auth, and a magnificently sarcastic AI overlord.
 
 ## Install
 
@@ -142,15 +142,15 @@ $ beercan run my-project "Add OAuth2 login with Google provider"
 | `managed` | Manager → Coder → Manager | Planned execution |
 | `full_team` | Manager → Coder → Reviewer → Tester | Production code |
 
-## 14 Dynamic Roles
+## 16 Dynamic Roles
 
 **5 built-in:** manager, coder, reviewer, tester, solo
 
-**9 templates** (gatekeeper picks as needed): writer, researcher, analyst, data_processor, summarizer, planner, editor, devops, architect
+**11 templates** (gatekeeper picks as needed): writer, researcher, analyst, data_processor, summarizer, planner, editor, devops, architect, heartbeat, verifier
 
 The gatekeeper can also invent custom roles with LLM-generated prompts for unusual tasks.
 
-## Built-in Tools
+## 32 Built-in Tools
 
 | Category | Tools |
 |----------|-------|
@@ -158,8 +158,52 @@ The gatekeeper can also invent custom roles with LLM-generated prompts for unusu
 | Web | `web_fetch` (Cloudflare Browser Rendering + native), `http_request` |
 | Notification | `send_notification` (macOS desktop) |
 | Memory | `memory_search`, `memory_store`, `memory_update`, `memory_link`, `memory_query_graph`, `memory_scratch` |
+| Spawning | `spawn_bloop`, `get_bloop_result`, `list_child_bloops`, `list_projects`, `search_cross_project`, `search_previous_attempts` |
+| Scheduling | `create_schedule`, `create_trigger`, `list_schedules`, `list_triggers`, `remove_schedule`, `remove_trigger` |
+| Skills | `create_skill`, `update_skill`, `list_skills`, `update_project_context` |
+| Integration | `register_tool_from_file`, `register_skill_from_bloop`, `verify_and_integrate` |
 
 Plus custom tools from `~/.beercan/tools/` and MCP servers.
+
+## Agentic Autonomy
+
+BeerCan agents are self-directed, not just task-driven:
+
+### Self-Spawning & Cross-Project
+Agents decompose work into child bloops and delegate across projects:
+```bash
+# Agent can spawn sub-tasks automatically
+beercan run my-project "Analyze codebase, spawn child bloops for each module"
+
+# Cross-project: agents discover and leverage other projects' knowledge
+```
+Safety limits: max 5 children per bloop, max depth 3, cross-project access configurable per project.
+
+### Self-Scheduling
+Agents create their own schedules and triggers:
+```
+"I'll check back on this PR tomorrow" → agent creates a cron job
+"Alert me if builds fail"             → agent creates an event trigger
+```
+
+### Heartbeat
+Per-project periodic awareness loops. Agent wakes up, checks a configurable checklist, surfaces findings or stays silent:
+```bash
+beercan heartbeat:configure my-project  # Set checklist, interval, active hours
+beercan daemon                          # Heartbeats run automatically
+```
+
+### Self-Education
+Optional post-bloop reflection extracts lessons, patterns, and error resolutions into memory. Future bloops automatically receive relevant lessons from past work:
+```bash
+export BEERCAN_REFLECTION_ENABLED=true  # Or set per-project
+```
+
+### Build-Verify-Integrate
+Agents build tools, spawn verification bloops, and auto-register on APPROVE:
+```
+Agent builds csv-parser.js → spawns verifier → tests pass → tool registered → available to all future bloops
+```
 
 ## Custom Tools
 
@@ -335,6 +379,12 @@ All providers share the same ChatBridge — slash commands and natural language 
 - **Conversation memory** — Skippy remembers last 20 messages per chat channel for multi-turn context
 - **Skills system** — workflow recipes with trigger matching and context injection (`~/.beercan/skills/`)
 - **Auto version badge** — landing page auto-fetches latest version from npm
+- **Self-spawning agents** — agents decompose work into child bloops with depth/count limits
+- **Cross-project collaboration** — agents search and delegate across projects
+- **Heartbeat awareness** — per-project periodic monitoring with active hours and suppression
+- **Post-bloop reflection** — opt-in learning from completed bloops via lightweight Haiku analysis
+- **Build-verify-integrate** — agents build tools, verify them, and auto-register for future use
+- **Self-scheduling** — agents create their own cron jobs and event triggers
 
 ## CLI Reference
 
@@ -408,6 +458,10 @@ Set in `.env` file:
 | `BEERCAN_TELEGRAM_TOKEN` | — | Telegram bot token |
 | `BEERCAN_SLACK_TOKEN` | — | Slack bot token |
 | `BEERCAN_SLACK_SIGNING_SECRET` | — | Slack signing secret |
+| `BEERCAN_MAX_CHILDREN_PER_BLOOP` | `5` | Max child bloops per parent |
+| `BEERCAN_MAX_SPAWN_DEPTH` | `3` | Max spawn chain depth |
+| `BEERCAN_HEARTBEAT_INTERVAL` | `30` | Default heartbeat interval (min) |
+| `BEERCAN_REFLECTION_ENABLED` | `false` | Enable post-bloop reflection |
 
 ## Architecture
 

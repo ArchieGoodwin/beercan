@@ -34,6 +34,20 @@ const ConfigSchema = z.object({
   apiKey: z.string().optional(),
   notifyOnComplete: z.boolean().default(true),
   notifyWebhookUrl: z.string().url().optional(),
+  // Phase 1: Self-spawning limits
+  maxChildrenPerBloop: z.number().default(5),
+  maxSpawnDepth: z.number().default(3),
+  // Phase 2: Self-scheduling limits
+  maxSchedulesPerProject: z.number().default(20),
+  maxTriggersPerProject: z.number().default(20),
+  minCronIntervalMinutes: z.number().default(5),
+  // Phase 3: Heartbeat
+  heartbeatDefaultInterval: z.number().default(30),
+  heartbeatActiveHours: z.string().default("08:00-22:00"),
+  heartbeatMinInterval: z.number().default(5),
+  // Phase 4: Reflection
+  reflectionEnabled: z.boolean().default(false),
+  reflectionModel: z.string().optional(),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;
@@ -73,6 +87,32 @@ export function getConfig(): Config {
         ? process.env.BEERCAN_NOTIFY_ON_COMPLETE !== "false"
         : undefined,
       notifyWebhookUrl: process.env.BEERCAN_NOTIFY_WEBHOOK_URL,
+      maxChildrenPerBloop: process.env.BEERCAN_MAX_CHILDREN_PER_BLOOP
+        ? parseInt(process.env.BEERCAN_MAX_CHILDREN_PER_BLOOP)
+        : undefined,
+      maxSpawnDepth: process.env.BEERCAN_MAX_SPAWN_DEPTH
+        ? parseInt(process.env.BEERCAN_MAX_SPAWN_DEPTH)
+        : undefined,
+      maxSchedulesPerProject: process.env.BEERCAN_MAX_SCHEDULES_PER_PROJECT
+        ? parseInt(process.env.BEERCAN_MAX_SCHEDULES_PER_PROJECT)
+        : undefined,
+      maxTriggersPerProject: process.env.BEERCAN_MAX_TRIGGERS_PER_PROJECT
+        ? parseInt(process.env.BEERCAN_MAX_TRIGGERS_PER_PROJECT)
+        : undefined,
+      minCronIntervalMinutes: process.env.BEERCAN_MIN_CRON_INTERVAL
+        ? parseInt(process.env.BEERCAN_MIN_CRON_INTERVAL)
+        : undefined,
+      heartbeatDefaultInterval: process.env.BEERCAN_HEARTBEAT_INTERVAL
+        ? parseInt(process.env.BEERCAN_HEARTBEAT_INTERVAL)
+        : undefined,
+      heartbeatActiveHours: process.env.BEERCAN_HEARTBEAT_HOURS,
+      heartbeatMinInterval: process.env.BEERCAN_HEARTBEAT_MIN_INTERVAL
+        ? parseInt(process.env.BEERCAN_HEARTBEAT_MIN_INTERVAL)
+        : undefined,
+      reflectionEnabled: process.env.BEERCAN_REFLECTION_ENABLED
+        ? process.env.BEERCAN_REFLECTION_ENABLED === "true"
+        : undefined,
+      reflectionModel: process.env.BEERCAN_REFLECTION_MODEL,
     });
   }
   return _config;

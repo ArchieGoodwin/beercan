@@ -161,6 +161,16 @@ export class SkillManager {
     return this.skills.get(name);
   }
 
+  /** Register a skill at runtime (without reloading from disk) */
+  registerSkill(skill: Skill): void {
+    this.skills.set(skill.name, skill);
+  }
+
+  /** Unregister a skill by name */
+  unregisterSkill(name: string): void {
+    this.skills.delete(name);
+  }
+
   /** Build extra context from matching skills to inject into agent prompts */
   buildSkillContext(goal: string): string | null {
     const matched = this.matchSkills(goal);

@@ -14,6 +14,7 @@ export interface EnqueueOptions {
   source?: "manual" | "cron" | "event";
   sourceId?: string;
   extraContext?: string;
+  parentBloopId?: string;
 }
 
 export interface Job {
@@ -26,6 +27,7 @@ export interface Job {
   source: string;
   sourceId: string | null;
   extraContext: string | null;
+  parentBloopId: string | null;
   bloopId: string | null;
   error: string | null;
   createdAt: string;
@@ -45,7 +47,7 @@ export class JobQueue {
   private abortControllers = new Map<string, AbortController>();
   private maxConcurrent: number;
   private db: BeerCanDB;
-  private executor: ((opts: { projectSlug: string; goal: string; team: string; extraContext?: string; signal?: AbortSignal }) => Promise<{ id: string; status: string }>) | null = null;
+  private executor: ((opts: { projectSlug: string; goal: string; team: string; extraContext?: string; parentBloopId?: string; signal?: AbortSignal }) => Promise<{ id: string; status: string }>) | null = null;
 
   constructor(db: BeerCanDB, maxConcurrent: number) {
     this.db = db;
@@ -53,7 +55,7 @@ export class JobQueue {
   }
 
   /** Set the bloop executor (called after engine is fully initialized) */
-  setExecutor(fn: (opts: { projectSlug: string; goal: string; team: string; extraContext?: string; signal?: AbortSignal }) => Promise<{ id: string; status: string }>): void {
+  setExecutor(fn: (opts: { projectSlug: string; goal: string; team: string; extraContext?: string; parentBloopId?: string; signal?: AbortSignal }) => Promise<{ id: string; status: string }>): void {
     this.executor = fn;
   }
 
@@ -73,6 +75,7 @@ export class JobQueue {
       source: opts.source ?? "manual",
       sourceId: opts.sourceId ?? null,
       extraContext: opts.extraContext ?? null,
+      parentBloopId: opts.parentBloopId ?? null,
       bloopId: null,
       error: null,
       createdAt: now,
@@ -127,6 +130,7 @@ export class JobQueue {
         goal: job.goal,
         team: job.team,
         extraContext: job.extraContext ?? undefined,
+        parentBloopId: job.parentBloopId ?? undefined,
         signal: controller.signal,
       });
 

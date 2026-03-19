@@ -9,8 +9,8 @@ import type { MemoryEntry, MemoryType } from "./schemas.js";
 
 export interface HybridSearchOptions {
   query: string;
-  projectId: string;
-  projectSlug: string;
+  projectId?: string;
+  projectSlug?: string;
   memoryType?: MemoryType;
   limit?: number;
 }
@@ -36,12 +36,15 @@ export class HybridSearch {
 
     // Run FTS5 and vector search in parallel
     const [ftsResults, vectorResults] = await Promise.all([
-      this.searchFTS(projectId, query, fetchLimit),
+      projectId
+        ? this.searchFTS(projectId, query, fetchLimit)
+        : this.searchFTSGlobal(query, fetchLimit),
       this.searchVector(query, fetchLimit),
     ]);
 
     // Graph expansion: find entities matching query, get their linked memory IDs
-    const graphMemoryIds = this.graphExpand(projectId, query);
+    // Skip graph expansion for global search (requires projectId)
+    const graphMemoryIds = projectId ? this.graphExpand(projectId, query) : [];
 
     // Build RRF score map
     const scoreMap = new Map<string, HybridSearchResult>();
@@ -81,6 +84,14 @@ export class HybridSearch {
       return this.db.searchMemoryFTS(projectId, query, limit);
     } catch {
       // FTS query might fail on syntax errors (e.g., special characters)
+      return [];
+    }
+  }
+
+  private searchFTSGlobal(query: string, limit: number): MemoryEntry[] {
+    try {
+      return this.db.searchMemoryFTSGlobal(query, limit);
+    } catch {
       return [];
     }
   }

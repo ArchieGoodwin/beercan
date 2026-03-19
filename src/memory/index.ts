@@ -199,21 +199,53 @@ export class MemoryManager {
     });
   }
 
+  /** Search across ALL projects (no project filter) */
+  async searchGlobal(
+    query: string,
+    opts?: { memoryType?: MemoryType; limit?: number },
+  ): Promise<HybridSearchResult[]> {
+    return this.hybridSearch.search({
+      query,
+      memoryType: opts?.memoryType,
+      limit: opts?.limit,
+    });
+  }
+
   // ── Retrieve Context ──────────────────────────────────
 
   /** Retrieve relevant past context for a new goal */
   async retrieveContext(projectSlug: string, goal: string, count = 5): Promise<string> {
     try {
-      const results = await this.search(projectSlug, goal, { limit: count });
+      const parts: string[] = [];
 
+      const results = await this.search(projectSlug, goal, { limit: count });
       if (results.length > 0) {
         const lines = results.map((r, i) =>
           `${i + 1}. [${r.entry.memoryType}] ${r.entry.title}\n   ${r.entry.content.slice(0, 300)}`
         );
-        return `\n--- Relevant Memories ---\n${lines.join("\n\n")}`;
+        parts.push(`\n--- Relevant Memories ---\n${lines.join("\n\n")}`);
       }
 
-      return "";
+      // Also search for reflection lessons from past bloops
+      try {
+        const lessons = await this.search(projectSlug, goal, {
+          memoryType: "insight",
+          limit: 3,
+        });
+        const reflectionLessons = lessons.filter((r) =>
+          r.entry.tags.some((t) => t === "reflection")
+        );
+        if (reflectionLessons.length > 0) {
+          const lessonLines = reflectionLessons.map((r, i) =>
+            `${i + 1}. ${r.entry.title}\n   ${r.entry.content.slice(0, 300)}`
+          );
+          parts.push(`\n--- Lessons from Past Bloops ---\n${lessonLines.join("\n\n")}`);
+        }
+      } catch {
+        // Non-critical — skip if lesson search fails
+      }
+
+      return parts.join("\n");
     } catch (err: any) {
       console.warn(`[memory] Failed to retrieve context: ${err.message}`);
       return "";

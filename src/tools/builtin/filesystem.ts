@@ -54,6 +54,10 @@ export const writeFileHandler: ToolHandler = async (input) => {
   const filePath = input.path as string;
   const content = input.content as string;
 
+  if (content == null || typeof content !== "string") {
+    throw new Error("'content' parameter is required and must be a non-empty string — you must provide the file content to write");
+  }
+
   const dir = path.dirname(filePath);
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });

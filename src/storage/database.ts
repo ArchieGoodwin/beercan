@@ -157,6 +157,69 @@ export class BeerCanDB {
     return rows.map((row) => this.rowToBloop(row));
   }
 
+  updateProject(project: Project): void {
+    this.db.prepare(
+      `UPDATE projects SET name = ?, description = ?, work_dir = ?, context = ?, allowed_tools = ?, token_budget = ?, updated_at = ? WHERE id = ?`
+    ).run(
+      project.name, project.description ?? null, project.workDir ?? null,
+      JSON.stringify(project.context), JSON.stringify(project.allowedTools),
+      JSON.stringify(project.tokenBudget), project.updatedAt, project.id,
+    );
+  }
+
+  // ── Child Bloop Queries ────────────────────────────────
+
+  getChildBloops(parentBloopId: string): Bloop[] {
+    const rows = this.db.prepare(
+      "SELECT * FROM loops WHERE parent_loop_id = ? ORDER BY created_at DESC"
+    ).all(parentBloopId) as any[];
+    return rows.map((row) => this.rowToBloop(row));
+  }
+
+  countChildBloops(parentBloopId: string): number {
+    const row = this.db.prepare(
+      "SELECT COUNT(*) as cnt FROM loops WHERE parent_loop_id = ?"
+    ).get(parentBloopId) as { cnt: number };
+    return row.cnt;
+  }
+
+  getBloopAncestorDepth(bloopId: string): number {
+    let depth = 0;
+    let currentId: string | null = bloopId;
+    while (currentId) {
+      const row = this.db.prepare(
+        "SELECT parent_loop_id FROM loops WHERE id = ?"
+      ).get(currentId) as { parent_loop_id: string | null } | undefined;
+      if (!row || !row.parent_loop_id) break;
+      depth++;
+      currentId = row.parent_loop_id;
+      if (depth > 10) break; // Hard safety limit
+    }
+    return depth;
+  }
+
+  getBloopByPartialId(partialId: string): Bloop | null {
+    const row = this.db.prepare(
+      "SELECT * FROM loops WHERE id LIKE ? ORDER BY created_at DESC LIMIT 1"
+    ).get(`${partialId}%`) as any;
+    return row ? this.rowToBloop(row) : null;
+  }
+
+  // ── Global Memory Search ──────────────────────────────
+
+  searchMemoryFTSGlobal(query: string, limit = 10): MemoryEntry[] {
+    const rows = this.db.prepare(
+      `SELECT me.*, rank
+       FROM memory_entries_fts fts
+       JOIN memory_entries me ON me.rowid = fts.rowid
+       WHERE memory_entries_fts MATCH ?
+       AND me.superseded_by IS NULL
+       ORDER BY rank
+       LIMIT ?`
+    ).all(query, limit) as any[];
+    return rows.map((row) => this.rowToMemoryEntry(row));
+  }
+
   // ── Row Mappers ──────────────────────────────────────────
 
   private rowToProject(row: any): Project {
@@ -682,12 +745,12 @@ export class BeerCanDB {
 
   createJob(job: Job): void {
     this.db.prepare(
-      `INSERT INTO job_queue (id, project_slug, goal, team, priority, status, source, source_id, extra_context, loop_id, error, created_at, started_at, completed_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO job_queue (id, project_slug, goal, team, priority, status, source, source_id, extra_context, parent_loop_id, loop_id, error, created_at, started_at, completed_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       job.id, job.projectSlug, job.goal, job.team, job.priority,
       job.status, job.source, job.sourceId, job.extraContext,
-      job.bloopId, job.error, job.createdAt, job.startedAt, job.completedAt,
+      job.parentBloopId, job.bloopId, job.error, job.createdAt, job.startedAt, job.completedAt,
     );
   }
 
@@ -762,6 +825,7 @@ export class BeerCanDB {
       source: row.source,
       sourceId: row.source_id,
       extraContext: row.extra_context,
+      parentBloopId: row.parent_loop_id ?? null,
       bloopId: row.loop_id,
       error: row.error,
       createdAt: row.created_at,
@@ -968,5 +1032,9 @@ const MIGRATIONS: Record<string, string> = {
     );
     CREATE INDEX IF NOT EXISTS idx_job_queue_status ON job_queue(status);
     CREATE INDEX IF NOT EXISTS idx_job_queue_priority ON job_queue(priority DESC, created_at ASC);
+  `,
+
+  "011_job_queue_parent": `
+    ALTER TABLE job_queue ADD COLUMN parent_loop_id TEXT REFERENCES loops(id);
   `,
 };

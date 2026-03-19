@@ -23,6 +23,11 @@ import {
   execDefinition, execHandler,
 } from "./tools/builtin/filesystem.js";
 import { createMemoryTools } from "./tools/builtin/memory.js";
+import { createSpawningTools } from "./tools/builtin/spawning.js";
+import { createSchedulingTools } from "./tools/builtin/scheduling.js";
+import { createSkillTools } from "./tools/builtin/skills.js";
+import { createIntegrationTools } from "./tools/builtin/integration.js";
+import { ReflectionEngine } from "./core/reflection.js";
 import {
   webFetchDefinition, webFetchHandler,
   httpRequestDefinition, httpRequestHandler,
@@ -71,11 +76,16 @@ export class BeerCanEngine {
   /** Must be called before using the engine — initializes async resources */
   async init(): Promise<this> {
     const client = await createAnthropicClient();
-    this.runner = new BloopRunner(this.db, this.tools, client, this.memoryManager);
+    const reflectionEngine = new ReflectionEngine(client, this.memoryManager, this.db);
+    this.runner = new BloopRunner(this.db, this.tools, client, this.memoryManager, reflectionEngine);
     this.gatekeeper = new Gatekeeper(client, this.memoryManager);
     this.jobQueue = new JobQueue(this.db, this.config.maxConcurrent);
     this.jobQueue.setExecutor(async (opts) => {
-      const bloop = await this.runBloop({ ...opts, signal: opts.signal });
+      const bloop = await this.runBloop({
+        ...opts,
+        parentBloopId: opts.parentBloopId,
+        signal: opts.signal,
+      });
       return { id: bloop.id, status: bloop.status };
     });
     this.scheduler = new Scheduler(this.db, this);
@@ -153,6 +163,56 @@ export class BeerCanEngine {
     for (const { definition, handler } of memoryTools) {
       this.tools.register(definition, handler);
     }
+
+    // Spawning & cross-project tools
+    const spawningTools = createSpawningTools(
+      {
+        enqueueBloop: (o) => this.enqueueBloop(o),
+        listProjects: () => this.listProjects(),
+        getProject: (slug) => this.getProject(slug),
+        getBloop: (id) => this.getBloop(id),
+      },
+      () => this.runner?.getCurrentBloopContext() ?? null,
+      this.db,
+      this.memoryManager,
+    );
+    for (const { definition, handler } of spawningTools) {
+      this.tools.register(definition, handler);
+    }
+
+    // Scheduling & trigger tools (deps lazily accessed — scheduler/eventManager init'd in init())
+    const schedulingTools = createSchedulingTools(
+      {
+        getScheduler: () => this.scheduler,
+        getEventManager: () => this.eventManager,
+      },
+      () => this.runner?.getCurrentBloopContext() ?? null,
+    );
+    for (const { definition, handler } of schedulingTools) {
+      this.tools.register(definition, handler);
+    }
+
+    // Skill & project context tools
+    const skillTools = createSkillTools(
+      this.skillManager,
+      () => this.runner?.getCurrentBloopContext() ?? null,
+      this.db,
+    );
+    for (const { definition, handler } of skillTools) {
+      this.tools.register(definition, handler);
+    }
+
+    // Integration tools (build → verify → integrate pipeline)
+    const integrationTools = createIntegrationTools(
+      {
+        toolRegistry: this.tools,
+        enqueueBloop: (o) => this.enqueueBloop(o),
+      },
+      () => this.runner?.getCurrentBloopContext() ?? null,
+    );
+    for (const { definition, handler } of integrationTools) {
+      this.tools.register(definition, handler);
+    }
   }
 
   // ── Project Management ───────────────────────────────────
@@ -218,6 +278,7 @@ export class BeerCanEngine {
     source?: "manual" | "cron" | "event";
     sourceId?: string;
     extraContext?: string;
+    parentBloopId?: string;
   }): string {
     return this.jobQueue.enqueue(opts);
   }
@@ -227,6 +288,7 @@ export class BeerCanEngine {
     projectSlug: string;
     goal: string;
     team?: string | BloopTeam;
+    parentBloopId?: string;
     extraContext?: string;
     onEvent?: RunBloopOptions["onEvent"];
     signal?: AbortSignal;
@@ -289,6 +351,7 @@ export class BeerCanEngine {
         project,
         goal: opts.goal,
         team,
+        parentBloopId: opts.parentBloopId,
         extraContext: opts.extraContext,
         onEvent: opts.onEvent,
         signal: opts.signal,

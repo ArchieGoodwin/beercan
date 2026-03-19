@@ -13,7 +13,7 @@ npm run build              # TypeScript compilation (tsc)
 npm run dev                # Watch mode with tsx
 npm run beercan -- <cmd>   # Run CLI commands (tsx src/cli.ts)
 npm start                  # Run compiled output (node dist/index.ts)
-npm test                   # Unit tests (116 tests, vitest)
+npm test                   # Unit tests (213 tests, vitest)
 npm run test:integration   # Integration tests with real Claude API
 npm run test:all           # All tests (unit + integration)
 ```
@@ -55,25 +55,31 @@ CLI commands via `npm run beercan --` (or `beercan` if installed globally):
 
 **Three-tier model:** Projects (sandboxed contexts with optional working directory) contain Bloops (atomic agent tasks) executed by Teams (role pipelines).
 
-**Execution flow:** `BeerCanEngine.runBloop()` → Gatekeeper analyzes goal (if team is "auto") → composes dynamic team + roles → creates Bloop record → initializes working memory → retrieves hybrid memory context → `BloopRunner.executePipeline()` → cycles through team stages → agents use tools (filesystem, web, memory, notification) → handles APPROVE/REVISE/REJECT decisions → stores result in DB + memory → cleans up.
+**Execution flow:** `BeerCanEngine.runBloop()` → Gatekeeper analyzes goal (if team is "auto") → composes dynamic team + roles → creates Bloop record → initializes working memory → retrieves hybrid memory context (including cross-project lessons) → `BloopRunner.executePipeline()` → cycles through team stages → agents use tools (filesystem, web, memory, spawning, scheduling, skills, integration) → handles APPROVE/REVISE/REJECT decisions → stores result in DB + memory → post-bloop reflection (if enabled) → cleans up.
 
 **Key source files:**
 - `src/index.ts` — `BeerCanEngine`, main public API (runBloop, enqueueBloop, getBloop, getProjectBloops)
 - `src/core/gatekeeper.ts` — `Gatekeeper`, pre-flight goal analysis, dynamic team composition
 - `src/core/job-queue.ts` — `JobQueue`, SQLite-backed job queue with concurrency semaphore
 - `src/core/logger.ts` — `Logger`, structured JSON logging to stdout + file
-- `src/core/role-templates.ts` — 9 dynamic role templates (writer, researcher, analyst, data_processor, summarizer, planner, editor, devops, architect)
-- `src/core/runner.ts` — `BloopRunner`, pipeline execution with multi-agent orchestration
+- `src/core/role-templates.ts` — 11 dynamic role templates (writer, researcher, analyst, data_processor, summarizer, planner, editor, devops, architect, heartbeat, verifier)
+- `src/core/runner.ts` — `BloopRunner`, pipeline execution with multi-agent orchestration + post-bloop reflection
+- `src/core/reflection.ts` — `ReflectionEngine`, post-bloop analysis via Haiku structured output
+- `src/core/heartbeat.ts` — `HeartbeatManager`, per-project periodic awareness loops
 - `src/core/roles.ts` — 5 built-in agent role definitions, team presets, pipeline configs
 - `src/schemas.ts` — core domain types as Zod schemas (Bloop, Project with workDir, ToolCallRecord)
 - `src/config.ts` — environment config with Zod validation
 - `src/cli.ts` — CLI with run/history/result/status/jobs commands
-- `src/storage/database.ts` — `BeerCanDB`, SQLite via better-sqlite3 + sqlite-vec, WAL mode, 10 migrations
+- `src/storage/database.ts` — `BeerCanDB`, SQLite via better-sqlite3 + sqlite-vec, WAL mode, 11 migrations
 - `src/tools/registry.ts` — tool registration and dispatch
 - `src/tools/builtin/filesystem.ts` — tools: read_file, write_file, list_directory, exec_command
 - `src/tools/builtin/web.ts` — tools: web_fetch (Cloudflare Browser Rendering + native fallback), http_request
 - `src/tools/builtin/notification.ts` — tool: send_notification (macOS osascript + console fallback)
 - `src/tools/builtin/memory.ts` — 6 memory tools for agents
+- `src/tools/builtin/spawning.ts` — 6 spawning + cross-project tools (spawn_bloop, get_bloop_result, list_child_bloops, list_projects, search_cross_project, search_previous_attempts)
+- `src/tools/builtin/scheduling.ts` — 6 self-scheduling tools (create/remove schedules + triggers)
+- `src/tools/builtin/skills.ts` — 4 skill + project context tools (create/update/list skills, update_project_context)
+- `src/tools/builtin/integration.ts` — 3 build-verify-integrate tools (register_tool_from_file, register_skill_from_bloop, verify_and_integrate)
 - `src/memory/` — layered memory system (see Memory Architecture below)
 - `src/mcp/` — Model Context Protocol integration (stdio transport, per-project config)
 - `src/events/` — event system with webhook, filesystem, polling, and macOS sources
@@ -104,7 +110,7 @@ Pre-flight analysis step that dynamically composes the right team for any goal. 
 
 - **When:** `team: "auto"` (default) or `team: undefined`. Skipped for preset teams.
 - **What it decides:** task complexity, roles, pipeline order, rejection flows, model per role, tools per role, max cycles.
-- **Role sources:** 5 built-in + 9 templates + fully custom roles with LLM-generated prompts.
+- **Role sources:** 5 built-in + 11 templates + fully custom roles with LLM-generated prompts.
 - **Config:** `BEERCAN_GATEKEEPER_MODEL` env var (default: `claude-haiku-4-5-20251001`).
 
 ## Status API
@@ -177,7 +183,7 @@ Provider-agnostic chat layer for interacting with BeerCan via natural language.
 
 ## Tool System
 
-13 built-in tools registered at engine construction:
+32 built-in tools registered at engine construction:
 
 | Tool | Category | Description |
 |------|----------|-------------|
@@ -194,6 +200,25 @@ Provider-agnostic chat layer for interacting with BeerCan via natural language.
 | `memory_link` | Memory | Create entities and edges in the knowledge graph |
 | `memory_query_graph` | Memory | Traverse knowledge graph (multi-hop BFS) |
 | `memory_scratch` | Memory | Read/write per-bloop working memory scratchpad |
+| `spawn_bloop` | Spawning | Create child bloops (same or cross-project) |
+| `get_bloop_result` | Spawning | Check status/result of any bloop by ID |
+| `list_child_bloops` | Spawning | List bloops spawned by current bloop |
+| `list_projects` | Spawning | Discover all available projects |
+| `search_cross_project` | Spawning | Search memories across projects (global or targeted) |
+| `search_previous_attempts` | Spawning | Find past bloop results with similar goals |
+| `create_schedule` | Scheduling | Create cron schedule for recurring bloops |
+| `create_trigger` | Scheduling | Create event trigger for reactive bloops |
+| `list_schedules` | Scheduling | List project's cron schedules |
+| `list_triggers` | Scheduling | List project's event triggers |
+| `remove_schedule` | Scheduling | Remove a cron schedule |
+| `remove_trigger` | Scheduling | Remove an event trigger |
+| `create_skill` | Skills | Create a reusable skill from experience |
+| `update_skill` | Skills | Update an existing skill |
+| `list_skills` | Skills | List all available skills |
+| `update_project_context` | Skills | Modify project configuration |
+| `register_tool_from_file` | Integration | Validate and register a .js file as a live tool |
+| `register_skill_from_bloop` | Integration | Package bloop learnings as a skill |
+| `verify_and_integrate` | Integration | Spawn verification bloop, integrate on APPROVE |
 
 **Cloudflare Browser Rendering:** Set `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID` env vars to enable. Fetches clean markdown from JS-rendered pages via their crawl endpoint.
 
@@ -210,6 +235,28 @@ Higher-level workflow recipes that orchestrate tools. Skills provide step-by-ste
 - **Context injection:** Matched skill `instructions` appended to agent system prompt
 - **CLI:** `beercan skill:create <name>`, `beercan skill:list`
 - **Chat:** `/skills` to list, natural language triggers automatic
+
+## Agentic Autonomy
+
+Six subsystems that make agents self-directed rather than task-driven:
+
+### Self-Spawning & Cross-Project
+Agents can create child bloops, delegate to other projects, and search global knowledge. `spawn_bloop` with optional `project_slug` for cross-project delegation. Safety: max 5 children per bloop, max depth 3 (configurable). `search_cross_project` and `search_previous_attempts` for global memory search. Projects opt out via `project.context.allowCrossProjectAccess: false`.
+
+### Self-Scheduling
+Agents create their own cron schedules and event triggers. `create_schedule` with frequency validation (min 5min interval). `create_trigger` with regex matching and `{{data.field}}` goal interpolation. Max 20 each per project.
+
+### Heartbeat System
+Per-project periodic awareness loop. `HeartbeatManager` runs in daemon mode, checks configurable checklists at intervals, suppresses silent results. Config stored in `project.context.heartbeat`. Active hours enforcement. Uses dedicated heartbeat role template.
+
+### Self-Education (Reflection)
+Opt-in post-bloop reflection via lightweight Haiku call. `ReflectionEngine` extracts lessons, patterns, errors into memory with `["reflection"]` tags. Creates knowledge graph entities linking bloops to lessons and error resolutions. `retrieveContext()` automatically injects relevant lessons from past bloops. Enable: `BEERCAN_REFLECTION_ENABLED=true` or `project.context.reflectionEnabled: true`. Includes periodic consolidation for merging duplicate memories.
+
+### Self-Modification
+Agents create and manage skills via `create_skill`, `update_skill`. Modify project config via `update_project_context` (restricted keys: id, slug, name, createdAt).
+
+### Build-Verify-Integrate Pipeline
+Agents build artifacts, spawn verification child bloops, and auto-register tools/skills on APPROVE. `verify_and_integrate` orchestrates the full cycle. `register_tool_from_file` validates exports and runs test commands before registration. Dedicated `verifier` role template.
 
 ## Memory Architecture
 
@@ -251,12 +298,12 @@ beercan jobs                            # Job queue status
 ## Testing
 
 ```bash
-npm test                    # 116 unit tests (~2s)
+npm test                    # 213 unit tests (~3s)
 npm run test:integration    # 4 API integration tests (~2min, needs ANTHROPIC_API_KEY)
 npm run test:all            # Everything
 ```
 
-- **Unit tests** (`tests/`): database, memory, tools, web tools, job queue, gatekeeper, roles, decision extraction, API
+- **Unit tests** (`tests/`): database, memory, tools, web tools, job queue, gatekeeper, roles, decision extraction, API, spawning tools, scheduling tools, reflection, heartbeat, skill tools, integration tools
 - **Integration tests** (`tests/integration.test.ts`): write utility, summarize CSV, web research, cross-bloop memory
 
 ## Code Conventions
@@ -264,7 +311,7 @@ npm run test:all            # Everything
 - **ESM only** — `"type": "module"`. All imports use `.js` extensions.
 - **Strict TypeScript** — `strict: true`, target ES2022.
 - **Zod for validation** — domain types as Zod schemas, inferred with `z.infer<>`.
-- **Tool pattern** — `ToolDefinition` + `ToolHandler`. Memory tools use factory pattern with closures.
+- **Tool pattern** — `ToolDefinition` + `ToolHandler`. Context-aware tools (memory, spawning, scheduling, skills, integration) use factory pattern with closures over `getBloopContext()`.
 - **Test framework** — vitest.
 
 ## Environment
@@ -294,3 +341,12 @@ Requires `ANTHROPIC_API_KEY` in `.env`. Optional env vars:
 | `BEERCAN_SLACK_TOKEN` | — | Slack bot token |
 | `BEERCAN_SLACK_SIGNING_SECRET` | — | Slack signing secret |
 | `BEERCAN_SLACK_APP_TOKEN` | — | Slack app token (socket mode) |
+| `BEERCAN_MAX_CHILDREN_PER_BLOOP` | `5` | Max child bloops per parent |
+| `BEERCAN_MAX_SPAWN_DEPTH` | `3` | Max parent chain depth for spawning |
+| `BEERCAN_MAX_SCHEDULES_PER_PROJECT` | `20` | Max cron schedules per project |
+| `BEERCAN_MAX_TRIGGERS_PER_PROJECT` | `20` | Max event triggers per project |
+| `BEERCAN_MIN_CRON_INTERVAL` | `5` | Minimum cron interval in minutes |
+| `BEERCAN_HEARTBEAT_INTERVAL` | `30` | Default heartbeat interval in minutes |
+| `BEERCAN_HEARTBEAT_HOURS` | `08:00-22:00` | Default heartbeat active hours |
+| `BEERCAN_REFLECTION_ENABLED` | `false` | Enable post-bloop reflection (opt-in) |
+| `BEERCAN_REFLECTION_MODEL` | — | Model for reflection (defaults to gatekeeper model) |
