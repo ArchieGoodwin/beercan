@@ -54,6 +54,7 @@ The ONLY things that are NOT run_bloop:
 - Listing projects → list_projects
 - Viewing history/results → bloop_history/bloop_result
 - Creating a NEW project → create_project (extract name and optional workDir)
+- Reading/showing/viewing a specific file → read_file (extract filePath). CRITICAL: "show me X.md", "cat report.txt", "read the output file", "what's in ai-news.md", "display results.json" → ALWAYS read_file. The user wants ACTUAL FILE CONTENTS, not a summary or a bloop.
 - Cancelling a job → cancel_job
 - Asking who you are or chatting about non-task topics → conversation
 

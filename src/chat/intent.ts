@@ -125,6 +125,19 @@ function parseNaturalPatterns(text: string): ChatIntent | null {
     return { type: "conversation", text: "Oh, you want me to create a project but can't even tell me its name? Try: /init <name> [work-dir]" };
   }
 
+  // "show me <file>", "cat <file>", "read <file>", "open <file>", "print <file>",
+  // "display <file>", "what's in <file>", "show <file> contents", "show the file <file>"
+  const readFileMatch = text.match(
+    /^(?:show\s+(?:me\s+)?(?:the\s+)?(?:file\s+|contents?\s+(?:of\s+)?)?|cat\s+|read\s+(?:the\s+)?(?:file\s+)?|open\s+(?:the\s+)?(?:file\s+)?|print\s+(?:the\s+)?(?:file\s+)?|display\s+(?:the\s+)?(?:file\s+)?|what(?:'s|s| is)\s+in\s+(?:the\s+)?(?:file\s+)?)(\S+)\s*$/i,
+  );
+  if (readFileMatch) {
+    const filePath = readFileMatch[1];
+    // Only match if it looks like a file path (has extension or path separator)
+    if (filePath.includes(".") || filePath.includes("/")) {
+      return { type: "read_file", filePath };
+    }
+  }
+
   return null;
 }
 
@@ -206,6 +219,16 @@ function parseSlashCommand(text: string): ChatIntent | null {
       return { type: "conversation", text: "Usage: /schedule list [project] OR /schedule add <project> \"<cron>\" <goal>" };
     }
 
+    case "/cat":
+    case "/show":
+    case "/read": {
+      const filePath = parts.slice(1).join(" ");
+      if (!filePath) {
+        return { type: "conversation", text: "Usage: /cat <file-path>" };
+      }
+      return { type: "read_file", filePath };
+    }
+
     case "/skills":
       return { type: "list_skills" };
 
@@ -237,6 +260,7 @@ const CLASSIFY_INTENT_TOOL: Anthropic.Tool = {
           "bloop_result",
           "cancel_job",
           "create_project",
+          "read_file",
           "add_schedule",
           "list_schedules",
           "help",
@@ -251,6 +275,10 @@ const CLASSIFY_INTENT_TOOL: Anthropic.Tool = {
       workDir: {
         type: "string",
         description: "Optional working directory path for create_project intents.",
+      },
+      filePath: {
+        type: "string",
+        description: "File path for read_file intents. Can be a relative path (resolved against project workDir) or absolute path.",
       },
       cronExpression: {
         type: "string",
@@ -324,6 +352,7 @@ async function classifyWithLLM(
     "- bloop_result: user wants details about a specific bloop by ID.",
     "- cancel_job: user wants to cancel a running or pending job.",
     "- create_project: user wants to create a new project. Extract name and optional workDir.",
+    "- read_file: user wants to SEE/READ/VIEW the contents of an existing file. Extract filePath. CRITICAL: 'show me <file>', 'cat <file>', 'read <file>', 'what's in <file>', 'display <file>', 'open <file>' → ALWAYS read_file, NEVER run_bloop. The user wants to see the ACTUAL FILE CONTENTS, not a summary or a bloop task.",
     "- add_schedule: user wants to schedule a RECURRING task. IMPORTANT: When the user says 'schedule', 'daily', 'every day', 'every morning', 'every hour', 'at 9am', 'recurring', 'set up a cron' — this is ALWAYS add_schedule, NEVER run_bloop. Extract cronExpression and goal. The goal should be JUST THE TASK (e.g., 'search for AI news and write a summary'), NOT 'schedule a task to...' — BeerCan handles the scheduling, the goal is what to DO each time.",
     "  Convert natural language: 'every day at 9am' = '0 9 * * *', 'weekday mornings' = '0 9 * * 1-5', 'every hour' = '0 * * * *', 'every 30 min' = '*/30 * * * *'.",
     "- list_schedules: user wants to see existing schedules.",
@@ -433,6 +462,14 @@ function toolInputToIntent(
         return { type: "conversation", text: "I need a job ID. Try: /cancel <job-id>" };
       }
       return { type: "cancel_job", jobId };
+    }
+
+    case "read_file": {
+      const filePath = input.filePath as string;
+      if (!filePath) {
+        return { type: "conversation", text: "I need a file path. Try: /cat <file-path>" };
+      }
+      return { type: "read_file", filePath };
     }
 
     case "create_project": {

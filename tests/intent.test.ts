@@ -29,6 +29,17 @@ describe("Intent Parser — Natural Language Patterns", () => {
       return { type: "conversation" as const, text: "Oh, you want me to create a project but can't even tell me its name? Try: /init <name> [work-dir]" };
     }
 
+    // "show me <file>", "cat <file>", "read <file>", "open <file>", etc.
+    const readFileMatch = text.match(
+      /^(?:show\s+(?:me\s+)?(?:the\s+)?(?:file\s+|contents?\s+(?:of\s+)?)?|cat\s+|read\s+(?:the\s+)?(?:file\s+)?|open\s+(?:the\s+)?(?:file\s+)?|print\s+(?:the\s+)?(?:file\s+)?|display\s+(?:the\s+)?(?:file\s+)?|what(?:'s|s| is)\s+in\s+(?:the\s+)?(?:file\s+)?)(\S+)\s*$/i,
+    );
+    if (readFileMatch) {
+      const filePath = readFileMatch[1];
+      if (filePath.includes(".") || filePath.includes("/")) {
+        return { type: "read_file" as const, filePath };
+      }
+    }
+
     return null;
   }
 
@@ -95,5 +106,56 @@ describe("Intent Parser — Natural Language Patterns", () => {
   it("matches 'create project named file-tool for viewing files'", () => {
     const result = parseNaturalPatterns("create project named file-tool for viewing files");
     expect(result).toEqual({ type: "create_project", name: "file-tool", workDir: undefined });
+  });
+
+  // ── read_file patterns ─────────────────────────────────────
+  it("matches 'show me ai-news.md'", () => {
+    const result = parseNaturalPatterns("show me ai-news.md");
+    expect(result).toEqual({ type: "read_file", filePath: "ai-news.md" });
+  });
+
+  it("matches 'cat report.txt'", () => {
+    const result = parseNaturalPatterns("cat report.txt");
+    expect(result).toEqual({ type: "read_file", filePath: "report.txt" });
+  });
+
+  it("matches 'read the file output.json'", () => {
+    const result = parseNaturalPatterns("read the file output.json");
+    expect(result).toEqual({ type: "read_file", filePath: "output.json" });
+  });
+
+  it("matches 'show me the file results.csv'", () => {
+    const result = parseNaturalPatterns("show me the file results.csv");
+    expect(result).toEqual({ type: "read_file", filePath: "results.csv" });
+  });
+
+  it("matches 'what's in ai-news.md'", () => {
+    const result = parseNaturalPatterns("what's in ai-news.md");
+    expect(result).toEqual({ type: "read_file", filePath: "ai-news.md" });
+  });
+
+  it("matches 'display summary.md'", () => {
+    const result = parseNaturalPatterns("display summary.md");
+    expect(result).toEqual({ type: "read_file", filePath: "summary.md" });
+  });
+
+  it("matches 'show me /tmp/output.log'", () => {
+    const result = parseNaturalPatterns("show me /tmp/output.log");
+    expect(result).toEqual({ type: "read_file", filePath: "/tmp/output.log" });
+  });
+
+  it("matches 'show content of data.json'", () => {
+    const result = parseNaturalPatterns("show content of data.json");
+    expect(result).toEqual({ type: "read_file", filePath: "data.json" });
+  });
+
+  it("matches 'open the file config.yaml'", () => {
+    const result = parseNaturalPatterns("open the file config.yaml");
+    expect(result).toEqual({ type: "read_file", filePath: "config.yaml" });
+  });
+
+  it("does NOT match 'show me' without a file-like argument", () => {
+    expect(parseNaturalPatterns("show me projects")).toBeNull();
+    expect(parseNaturalPatterns("show me status")).toBeNull();
   });
 });
