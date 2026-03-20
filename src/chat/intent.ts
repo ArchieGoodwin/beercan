@@ -30,6 +30,12 @@ export async function parseIntent(
   const slashResult = parseSlashCommand(trimmed);
   if (slashResult) return slashResult;
 
+  // ── Tier 1.5: Natural Language Patterns ───────────────────
+  // Catch common phrases before expensive LLM call.
+
+  const patternResult = parseNaturalPatterns(trimmed);
+  if (patternResult) return patternResult;
+
   // ── Tier 2: Natural Language (LLM) ─────────────────────────
 
   return classifyWithLLM(client, trimmed, ctx, engine);
@@ -84,6 +90,39 @@ function parseShortcuts(
   if (text.startsWith("@")) {
     const bloopId = text.slice(1).trim();
     return { type: "bloop_result", bloopId };
+  }
+
+  return null;
+}
+
+// ── Tier 1.5: Natural Language Pattern Matching ──────────────
+// Catches high-confidence patterns that the LLM frequently misclassifies.
+
+function parseNaturalPatterns(text: string): ChatIntent | null {
+  const lower = text.toLowerCase();
+
+  // "create project X", "new project X", "make a project X", "init project X"
+  const createProjectMatch = lower.match(
+    /^(?:create|new|make|init|initialize|set\s*up|start)\s+(?:a\s+)?(?:new\s+)?project\s+(?:called\s+|named\s+)?(.+)/i,
+  );
+  if (createProjectMatch) {
+    const rest = createProjectMatch[1].trim();
+    // Extract project name — take first phrase before "to", "for", "with", "that", "which", "--"
+    const nameMatch = rest.match(/^([^\s]+(?:\s+[^\s]+){0,3}?)(?:\s+(?:to|for|with|that|which|--|—)|\s*$)/);
+    const rawName = nameMatch ? nameMatch[1] : rest.split(/\s+/).slice(0, 3).join(" ");
+    // Clean name: remove trailing prepositions/articles
+    const name = rawName.replace(/\s+(?:to|for|with|that|which|a|an|the)$/i, "").trim();
+
+    if (name) {
+      // Check for --work-dir flag using original text to preserve path casing
+      const workDirMatch = text.match(/--(?:work-dir|workdir|dir)\s+(\S+)/i);
+      return { type: "create_project", name, workDir: workDirMatch?.[1] };
+    }
+  }
+
+  // "create a project" (no name) — still route to create_project so the handler can prompt
+  if (/^(?:create|new|make|init|initialize|set\s*up|start)\s+(?:a\s+)?(?:new\s+)?project\s*$/i.test(lower)) {
+    return { type: "conversation", text: "Oh, you want me to create a project but can't even tell me its name? Try: /init <name> [work-dir]" };
   }
 
   return null;
