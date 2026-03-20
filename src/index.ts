@@ -206,6 +206,7 @@ export class BeerCanEngine {
     const integrationTools = createIntegrationTools(
       {
         toolRegistry: this.tools,
+        skillManager: this.skillManager,
         enqueueBloop: (o) => this.enqueueBloop(o),
       },
       () => this.runner?.getCurrentBloopContext() ?? null,

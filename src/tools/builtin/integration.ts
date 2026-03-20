@@ -5,6 +5,7 @@ import type { ToolDefinition } from "../../schemas.js";
 import type { ToolHandler } from "../registry.js";
 import type { ToolRegistry } from "../registry.js";
 import type { BloopContext } from "./memory.js";
+import type { SkillManager } from "../../skills/index.js";
 import { getConfig } from "../../config.js";
 
 // ── Integration Tool Factory ────────────────────────────────
@@ -14,6 +15,7 @@ const MAX_CUSTOM_TOOLS = 50;
 
 interface IntegrationDeps {
   toolRegistry: ToolRegistry;
+  skillManager: SkillManager;
   enqueueBloop: (opts: {
     projectSlug: string;
     goal: string;
@@ -31,7 +33,7 @@ export function createIntegrationTools(
   const resolvedDataDir = dataDir ?? getConfig().dataDir;
   return [
     { definition: registerToolDef, handler: createRegisterToolHandler(deps, getBloopContext, resolvedDataDir) },
-    { definition: registerSkillFromBloopDef, handler: createRegisterSkillFromBloopHandler(getBloopContext, resolvedDataDir) },
+    { definition: registerSkillFromBloopDef, handler: createRegisterSkillFromBloopHandler(deps.skillManager, getBloopContext, resolvedDataDir) },
     { definition: verifyAndIntegrateDef, handler: createVerifyAndIntegrateHandler(deps, getBloopContext) },
   ];
 }
@@ -167,6 +169,7 @@ const registerSkillFromBloopDef: ToolDefinition = {
 };
 
 function createRegisterSkillFromBloopHandler(
+  skillManager: SkillManager,
   getCtx: () => BloopContext | null,
   dataDir: string,
 ): ToolHandler {
@@ -196,7 +199,10 @@ function createRegisterSkillFromBloopHandler(
     const skillPath = path.join(skillsDir, `${name}.json`);
     fs.writeFileSync(skillPath, JSON.stringify(skill, null, 2));
 
-    return `Skill "${name}" created from bloop ${ctx.bloopId.slice(0, 8)}...\nFile: ${skillPath}\nWill be loaded on next restart.`;
+    // Register live in memory so the skill is immediately available
+    skillManager.registerSkill(skill);
+
+    return `Skill "${name}" created and registered from bloop ${ctx.bloopId.slice(0, 8)}...\nFile: ${skillPath}\nTriggers: ${skill.triggers.join(", ")}`;
   };
 }
 
