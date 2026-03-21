@@ -314,6 +314,35 @@ npm run test:all            # Everything
 - **Tool pattern** — `ToolDefinition` + `ToolHandler`. Context-aware tools (memory, spawning, scheduling, skills, integration) use factory pattern with closures over `getBloopContext()`.
 - **Test framework** — vitest.
 
+## TinFoil Encryption
+
+Application-level field encryption protocol. Named "TinFoil" (tin foil hat + beer can material).
+
+**Protocols:** AES-256-GCM (AEAD cipher), HKDF-SHA256 (sub-key derivation), scrypt (passphrase KDF). All via `node:crypto` — zero new dependencies.
+
+**Key hierarchy (Signal-inspired):**
+```
+Master Key (scrypt from passphrase, or keyfile)
+  ├── HKDF("beercan-project-{id}") → Project Key
+  │     ├── HKDF("beercan-bloop-{id}") → Bloop Key
+  │     └── HKDF("beercan-memory-{id}") → Memory Key
+  └── HKDF("beercan-global") → Global Key
+```
+
+**Key files:**
+- `src/crypto/primitives.ts` — AES-256-GCM, HKDF, scrypt, buffer utils
+- `src/crypto/key-manager.ts` — Master key lifecycle, sub-key derivation, LRU cache, zeroization
+- `src/crypto/index.ts` — `CryptoManager` facade (encrypt/decrypt with scope-based keys)
+- `src/crypto/migration.ts` — encryptDatabase, decryptDatabase, rekeyDatabase
+
+**Encrypted fields:** bloop goal/messages/result/tool_calls, project context, memory title/content, KG description/properties, job goal/extra_context, schedule goal, trigger goal_template/filter_data, working memory value, event_data.
+
+**FTS5:** Plaintext in FTS5 index for search (known trade-off). Content columns encrypted in main table.
+
+**Hardening:** Key zeroization on shutdown, log field sanitization (redacts sensitive fields + API key patterns), WSS support for WebSocket.
+
+**CLI:** `beercan crypto:setup`, `crypto:status`, `crypto:encrypt`, `crypto:decrypt`.
+
 ## Environment
 
 Requires `ANTHROPIC_API_KEY` in `.env`. Optional env vars:
@@ -350,3 +379,10 @@ Requires `ANTHROPIC_API_KEY` in `.env`. Optional env vars:
 | `BEERCAN_HEARTBEAT_HOURS` | `08:00-22:00` | Default heartbeat active hours |
 | `BEERCAN_REFLECTION_ENABLED` | `false` | Enable post-bloop reflection (opt-in) |
 | `BEERCAN_REFLECTION_MODEL` | — | Model for reflection (defaults to gatekeeper model) |
+| `BEERCAN_ENCRYPTION_ENABLED` | `false` | Enable TinFoil field encryption |
+| `BEERCAN_ENCRYPTION_MODE` | `passphrase` | `passphrase` or `keyfile` |
+| `BEERCAN_ENCRYPTION_PASSPHRASE` | — | Passphrase for daemon mode (avoids prompt) |
+| `BEERCAN_ENCRYPTION_KEYFILE` | `~/.beercan/master.key` | Path to keyfile |
+| `BEERCAN_LOG_SANITIZE` | — | Force log sanitization on/off (auto with encryption) |
+| `BEERCAN_WS_TLS_CERT` | — | TLS certificate for WebSocket (enables WSS) |
+| `BEERCAN_WS_TLS_KEY` | — | TLS private key for WebSocket |
