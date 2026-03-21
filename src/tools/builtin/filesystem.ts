@@ -55,7 +55,11 @@ export const writeFileHandler: ToolHandler = async (input) => {
   const content = input.content as string;
 
   if (content == null || typeof content !== "string") {
-    throw new Error("'content' parameter is required and must be a non-empty string — you must provide the file content to write");
+    throw new Error(
+      "'content' parameter is required and must be a non-empty string — you must provide the file content to write. " +
+      "HINT: If your content is very large, break it into smaller sections and write them incrementally, " +
+      "or summarize/condense the content before writing. Do NOT retry with the same approach."
+    );
   }
 
   const dir = path.dirname(filePath);

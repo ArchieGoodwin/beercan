@@ -181,6 +181,7 @@ export const httpRequestDefinition: ToolDefinition = {
       headers: { type: "object", description: "HTTP headers" },
       body: { type: "string", description: "Request body (for POST/PUT/PATCH)" },
       timeout_ms: { type: "number", description: "Timeout in milliseconds (default 30000)" },
+      max_body_length: { type: "number", description: "Maximum response body length in characters (default 50000)" },
     },
     required: ["url"],
   },
@@ -192,6 +193,7 @@ export const httpRequestHandler: ToolHandler = async (input) => {
   const headers = (input.headers as Record<string, string>) ?? {};
   const body = input.body as string | undefined;
   const timeoutMs = (input.timeout_ms as number) ?? 30000;
+  const maxBodyLength = (input.max_body_length as number) ?? 50_000;
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
@@ -209,8 +211,9 @@ export const httpRequestHandler: ToolHandler = async (input) => {
     });
 
     const responseBody = await response.text();
-    const truncatedBody = responseBody.length > 100_000
-      ? responseBody.slice(0, 100_000) + "\n--- Truncated ---"
+    const truncated = responseBody.length > maxBodyLength;
+    const truncatedBody = truncated
+      ? responseBody.slice(0, maxBodyLength) + `\n\n--- Truncated at ${maxBodyLength} characters (original: ${responseBody.length}). Use max_body_length parameter to adjust. ---`
       : responseBody;
 
     const responseHeaders: Record<string, string> = {};

@@ -315,6 +315,9 @@ export class BloopRunner {
 
     let iterations = 0;
     let finalContent = "";
+    // Track consecutive failures per tool for retry-with-different-approach detection
+    const consecutiveFailures: Map<string, number> = new Map();
+    const REPEATED_FAILURE_THRESHOLD = 3;
 
     while (iterations < role.maxIterations) {
       if (signal?.aborted) throw new Error(String((signal.reason as any)?.message ?? "Bloop aborted"));
@@ -381,6 +384,14 @@ export class BloopRunner {
           };
           bloop.toolCalls.push(toolRecord);
 
+          // Track consecutive failures per tool
+          if (result.error) {
+            const count = (consecutiveFailures.get(block.name) ?? 0) + 1;
+            consecutiveFailures.set(block.name, count);
+          } else {
+            consecutiveFailures.set(block.name, 0);
+          }
+
           const resultText = result.output ?? `ERROR: ${result.error}`;
           options.onEvent?.({
             type: "tool_result",
@@ -402,6 +413,27 @@ export class BloopRunner {
       // If there were tool calls, feed results back
       if (hasToolUse) {
         messages.push({ role: "assistant", content: assistantContent as any });
+
+        // Check for repeated failures and inject course-correction guidance
+        const repeatedTools = [...consecutiveFailures.entries()]
+          .filter(([, count]) => count >= REPEATED_FAILURE_THRESHOLD);
+
+        if (repeatedTools.length > 0) {
+          const toolNames = repeatedTools.map(([name, count]) => `${name} (${count}x)`).join(", ");
+          toolResults.push({
+            type: "tool_result",
+            tool_use_id: "system",
+            content:
+              `SYSTEM WARNING: The following tools have failed ${REPEATED_FAILURE_THRESHOLD}+ times consecutively: ${toolNames}. ` +
+              `You MUST change your approach — do NOT retry the same tool call with the same parameters. Consider:\n` +
+              `- Breaking the operation into smaller steps\n` +
+              `- Using a different tool (e.g., exec_command with echo/printf instead of write_file)\n` +
+              `- Simplifying or reducing the size of the data you are passing\n` +
+              `- Completing the goal with what you already have rather than retrying\n` +
+              `If you cannot accomplish the goal differently, explain what went wrong and stop.`,
+          } as any);
+        }
+
         messages.push({ role: "user", content: toolResults });
         // Save progress
         bloop.updatedAt = new Date().toISOString();
