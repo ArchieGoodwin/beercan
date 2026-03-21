@@ -1,5 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import chalk from "chalk";
+import { readFile } from "node:fs/promises";
+import { resolve, isAbsolute } from "node:path";
 import type { BeerCanEngine } from "../index.js";
 import type { ChatProvider, ChatMessage, ChatIntent, SendOpts } from "./types.js";
 import { parseIntent } from "./intent.js";
@@ -188,6 +190,9 @@ export class ChatBridge {
         case "cancel_job":
           await this.handleCancelJob(provider, msg, intent);
           break;
+        case "read_file":
+          await this.handleReadFile(provider, msg, intent);
+          break;
         case "create_project":
           await this.handleCreateProject(provider, msg, intent);
           break;
@@ -370,6 +375,46 @@ export class ChatBridge {
     }
   }
 
+  private async handleReadFile(
+    provider: ChatProvider,
+    msg: ChatMessage,
+    intent: Extract<ChatIntent, { type: "read_file" }>,
+  ): Promise<void> {
+    const ctx = this.getOrCreateContext(msg.channelId);
+
+    // Resolve file path against project workDir if available
+    let filePath = intent.filePath;
+    if (!isAbsolute(filePath)) {
+      const projectSlug = ctx.lastProjectSlug;
+      if (projectSlug) {
+        const project = this.engine.getProject(projectSlug);
+        if (project?.workDir) {
+          filePath = resolve(project.workDir, filePath);
+        }
+      }
+    }
+
+    try {
+      const content = await readFile(filePath, "utf-8");
+      const MAX_LENGTH = 4000;
+      const truncated = content.length > MAX_LENGTH;
+      const display = truncated ? content.slice(0, MAX_LENGTH) : content;
+
+      const ext = filePath.split(".").pop() || "";
+      const header = `**\`${intent.filePath}\`**${truncated ? ` (truncated — ${content.length} chars total)` : ""}`;
+      const codeBlock = `\`\`\`${ext}\n${display}\n\`\`\``;
+
+      await this.sendWithContext(provider, msg, `${header}\n${codeBlock}`, { format: "markdown" });
+    } catch (err: any) {
+      if (err.code === "ENOENT") {
+        await this.sendWithContext(provider, msg,
+          `File \`${intent.filePath}\` not found.${ctx.lastProjectSlug ? ` Looked in project workDir.` : ""} Check the path and try again.`);
+      } else {
+        await this.sendWithContext(provider, msg, `Failed to read file: ${err.message}`);
+      }
+    }
+  }
+
   private async handleCreateProject(
     provider: ChatProvider,
     msg: ChatMessage,
@@ -471,7 +516,7 @@ export class ChatBridge {
 
     // / → slash commands
     if (line.startsWith("/")) {
-      const commands = ["/run", "/init", "/status", "/projects", "/history", "/result", "/cancel", "/help"];
+      const commands = ["/run", "/init", "/status", "/projects", "/history", "/result", "/cancel", "/cat", "/show", "/help"];
       const matches = commands.filter((c) => c.startsWith(line));
       return [matches.length ? matches : commands, line];
     }

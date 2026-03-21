@@ -33,6 +33,7 @@ export type ChatIntent =
   | { type: "switch_project"; projectSlug: string }
   | { type: "add_schedule"; projectSlug: string; cron: string; goal: string }
   | { type: "list_schedules"; projectSlug?: string }
+  | { type: "read_file"; filePath: string }
   | { type: "list_skills" }
   | { type: "help" }
   | { type: "conversation"; text: string };

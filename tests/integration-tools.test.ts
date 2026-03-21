@@ -5,6 +5,7 @@ import { BeerCanDB } from "../src/storage/database.js";
 import { ToolRegistry } from "../src/tools/registry.js";
 import { createIntegrationTools } from "../src/tools/builtin/integration.js";
 import type { BloopContext } from "../src/tools/builtin/memory.js";
+import type { SkillManager } from "../src/skills/index.js";
 
 function tmpDb(): string {
   return `/tmp/loops-integ-test-${Date.now()}-${Math.random().toString(36).slice(2)}.db`;
@@ -21,7 +22,9 @@ describe("Integration Tools", () => {
   let db: BeerCanDB;
   let dataDir: string;
   let toolRegistry: ToolRegistry;
+  let skillManager: SkillManager;
   let enqueuedCalls: any[];
+  let registeredSkills: any[];
   let bloopCtx: BloopContext;
 
   beforeEach(() => {
@@ -29,6 +32,10 @@ describe("Integration Tools", () => {
     db = new BeerCanDB(dbPath);
     dataDir = tmpDir();
     toolRegistry = new ToolRegistry();
+    registeredSkills = [];
+    skillManager = {
+      registerSkill: (skill: any) => { registeredSkills.push(skill); },
+    } as unknown as SkillManager;
     enqueuedCalls = [];
 
     const now = new Date().toISOString();
@@ -59,6 +66,7 @@ describe("Integration Tools", () => {
     const tools = createIntegrationTools(
       {
         toolRegistry,
+        skillManager,
         enqueueBloop: (opts) => { enqueuedCalls.push(opts); return "job-v1"; },
       },
       () => ctx,
@@ -158,7 +166,7 @@ describe("Integration Tools", () => {
   // ── register_skill_from_bloop ─────────────────────────────
 
   describe("register_skill_from_bloop", () => {
-    it("creates a skill JSON file", async () => {
+    it("creates a skill JSON file and registers live", async () => {
       const handler = getHandler("register_skill_from_bloop");
       const result = await handler({
         name: "csv-processing",
@@ -168,6 +176,7 @@ describe("Integration Tools", () => {
       });
 
       expect(result).toContain("csv-processing");
+      expect(result).toContain("registered");
 
       const skillPath = path.join(dataDir, "skills", "csv-processing.json");
       expect(fs.existsSync(skillPath)).toBe(true);
@@ -175,6 +184,11 @@ describe("Integration Tools", () => {
       const written = JSON.parse(fs.readFileSync(skillPath, "utf-8"));
       expect(written.name).toBe("csv-processing");
       expect(written.sourceBloopId).toBe("bloop-1");
+
+      // Verify registered live in skill manager
+      expect(registeredSkills).toHaveLength(1);
+      expect(registeredSkills[0].name).toBe("csv-processing");
+      expect(registeredSkills[0].triggers).toEqual(["csv", "parse csv"]);
     });
 
     it("rejects invalid name", async () => {
