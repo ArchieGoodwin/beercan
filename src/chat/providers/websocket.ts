@@ -1,14 +1,23 @@
 import { v4 as uuid } from "uuid";
 import type { ChatProvider, ChatMessage, SendOpts } from "../types.js";
 
+export interface WebSocketTlsOptions {
+  cert: string;  // Path to TLS certificate file
+  key: string;   // Path to TLS private key file
+}
+
 export class WebSocketProvider implements ChatProvider {
   readonly name = "websocket";
 
   private wss: any = null;
+  private httpServer: any = null;
   private clients = new Map<string, any>();
   private handler: ((msg: ChatMessage) => Promise<void>) | null = null;
 
-  constructor(private readonly port: number = 3940) {}
+  constructor(
+    private readonly port: number = 3940,
+    private readonly tlsOptions?: WebSocketTlsOptions,
+  ) {}
 
   async start(): Promise<void> {
     let WebSocketServer: any;
@@ -22,7 +31,22 @@ export class WebSocketProvider implements ChatProvider {
       );
     }
 
-    this.wss = new WebSocketServer({ port: this.port });
+    if (this.tlsOptions) {
+      // WSS mode — create HTTPS server and pass to WebSocketServer
+      const https = await import("node:https");
+      const fs = await import("node:fs");
+
+      const serverOptions = {
+        cert: fs.readFileSync(this.tlsOptions.cert),
+        key: fs.readFileSync(this.tlsOptions.key),
+      };
+
+      this.httpServer = https.createServer(serverOptions);
+      this.wss = new WebSocketServer({ server: this.httpServer });
+      this.httpServer.listen(this.port);
+    } else {
+      this.wss = new WebSocketServer({ port: this.port });
+    }
 
     this.wss.on("connection", (ws: any) => {
       const clientId = uuid();
@@ -64,7 +88,8 @@ export class WebSocketProvider implements ChatProvider {
       });
     });
 
-    console.log(`WebSocket server listening on port ${this.port}`);
+    const protocol = this.tlsOptions ? "wss" : "ws";
+    console.log(`WebSocket server listening on ${protocol}://0.0.0.0:${this.port}`);
   }
 
   async stop(): Promise<void> {
@@ -78,6 +103,13 @@ export class WebSocketProvider implements ChatProvider {
         this.wss.close(() => resolve());
       });
       this.wss = null;
+    }
+
+    if (this.httpServer) {
+      await new Promise<void>((resolve) => {
+        this.httpServer.close(() => resolve());
+      });
+      this.httpServer = null;
     }
   }
 

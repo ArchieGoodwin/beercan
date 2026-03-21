@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "fs";
+import Database from "better-sqlite3";
 import { BeerCanDB } from "../src/storage/database.js";
+import { CryptoManager, isEncrypted } from "../src/crypto/index.js";
 import type { Project, Bloop } from "../src/schemas.js";
 import { v4 as uuid } from "uuid";
 
@@ -424,5 +426,232 @@ describe("BeerCanDB", () => {
       db.clearWorkingMemory(bloopId);
       expect(db.listWorkingMemory(bloopId)).toHaveLength(0);
     });
+  });
+});
+
+// ── Encrypted Database Tests ─────────────────────────────────
+
+describe("BeerCanDB with encryption", () => {
+  let dbPath: string;
+  let db: BeerCanDB;
+  let crypto: CryptoManager;
+  let configDir: string;
+
+  beforeEach(() => {
+    configDir = `/tmp/beercan-crypto-dbtest-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    fs.mkdirSync(configDir, { recursive: true });
+    crypto = CryptoManager.fromPassphrase("test-passphrase", configDir);
+    dbPath = tmpDb();
+    db = new BeerCanDB(dbPath, crypto);
+  });
+
+  afterEach(() => {
+    db.close();
+    crypto.destroy();
+    for (const suffix of ["", "-wal", "-shm"]) {
+      const p = dbPath + suffix;
+      if (fs.existsSync(p)) fs.unlinkSync(p);
+    }
+    if (fs.existsSync(configDir)) fs.rmSync(configDir, { recursive: true, force: true });
+  });
+
+  it("encrypts bloop goal in database, decrypts via API", () => {
+    const project = makeProject();
+    db.createProject(project);
+
+    const bloop = makeBloop(project.id, { goal: "Secret mission to Mars" });
+    db.createBloop(bloop);
+
+    // Read via API — should be decrypted
+    const retrieved = db.getBloop(bloop.id);
+    expect(retrieved?.goal).toBe("Secret mission to Mars");
+
+    // Read raw SQL — goal should be encrypted
+    const rawDb = new Database(dbPath);
+    const rawRow = rawDb.prepare("SELECT goal FROM loops WHERE id = ?").get(bloop.id) as any;
+    rawDb.close();
+    expect(rawRow.goal).not.toBe("Secret mission to Mars");
+    expect(isEncrypted(rawRow.goal)).toBe(true);
+  });
+
+  it("encrypts bloop messages and tool_calls", () => {
+    const project = makeProject();
+    db.createProject(project);
+
+    const bloop = makeBloop(project.id, {
+      messages: [{ role: "user", content: "top secret", timestamp: new Date().toISOString() }],
+      toolCalls: [{ id: "t1", toolName: "read_file", input: { path: "/etc/passwd" }, durationMs: 10, timestamp: new Date().toISOString() }],
+    });
+    db.createBloop(bloop);
+
+    // API returns decrypted
+    const retrieved = db.getBloop(bloop.id)!;
+    expect(retrieved.messages[0].content).toBe("top secret");
+    expect(retrieved.toolCalls[0].toolName).toBe("read_file");
+
+    // Raw DB has encrypted values
+    const rawDb = new Database(dbPath);
+    const raw = rawDb.prepare("SELECT messages, tool_calls FROM loops WHERE id = ?").get(bloop.id) as any;
+    rawDb.close();
+    expect(isEncrypted(raw.messages)).toBe(true);
+    expect(isEncrypted(raw.tool_calls)).toBe(true);
+  });
+
+  it("encrypts project context", () => {
+    const project = makeProject({ context: { apiKey: "sk-secret-123" } });
+    db.createProject(project);
+
+    // API returns decrypted
+    const retrieved = db.getProject(project.id)!;
+    expect(retrieved.context).toEqual({ apiKey: "sk-secret-123" });
+
+    // Raw DB has encrypted context
+    const rawDb = new Database(dbPath);
+    const raw = rawDb.prepare("SELECT context FROM projects WHERE id = ?").get(project.id) as any;
+    rawDb.close();
+    expect(isEncrypted(raw.context)).toBe(true);
+  });
+
+  it("encrypts memory entry title and content", () => {
+    const project = makeProject();
+    db.createProject(project);
+
+    const entry = {
+      id: uuid(),
+      projectId: project.id,
+      memoryType: "fact" as const,
+      title: "Secret Knowledge",
+      content: "The password is 42",
+      sourceBloopId: null,
+      supersededBy: null,
+      confidence: 1.0,
+      tags: ["secret"],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    db.createMemoryEntry(entry);
+
+    // API returns decrypted
+    const retrieved = db.getMemoryEntry(entry.id)!;
+    expect(retrieved.title).toBe("Secret Knowledge");
+    expect(retrieved.content).toBe("The password is 42");
+
+    // Raw DB has encrypted title/content
+    const rawDb = new Database(dbPath);
+    const raw = rawDb.prepare("SELECT title, content FROM memory_entries WHERE id = ?").get(entry.id) as any;
+    rawDb.close();
+    expect(isEncrypted(raw.title)).toBe(true);
+    expect(isEncrypted(raw.content)).toBe(true);
+  });
+
+  it("FTS5 still works with encrypted content columns", () => {
+    const project = makeProject();
+    db.createProject(project);
+
+    const entry = {
+      id: uuid(),
+      projectId: project.id,
+      memoryType: "fact" as const,
+      title: "Quantum Physics",
+      content: "Entanglement is real and observable",
+      sourceBloopId: null,
+      supersededBy: null,
+      confidence: 1.0,
+      tags: ["physics"],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    db.createMemoryEntry(entry);
+
+    // FTS5 search should still work (plaintext in FTS5 index)
+    const results = db.searchMemoryFTS(project.id, "entanglement");
+    expect(results).toHaveLength(1);
+    expect(results[0].title).toBe("Quantum Physics");
+    expect(results[0].content).toBe("Entanglement is real and observable");
+  });
+
+  it("encrypts working memory values", () => {
+    const project = makeProject();
+    db.createProject(project);
+    const bloop = makeBloop(project.id);
+    db.createBloop(bloop);
+
+    db.setWorkingMemory(bloop.id, "plan", "Take over the world");
+
+    // API returns decrypted
+    expect(db.getWorkingMemory(bloop.id, "plan")).toBe("Take over the world");
+
+    // Raw DB has encrypted value
+    const rawDb = new Database(dbPath);
+    const raw = rawDb.prepare("SELECT value FROM working_memory WHERE loop_id = ? AND key = ?").get(bloop.id, "plan") as any;
+    rawDb.close();
+    expect(isEncrypted(raw.value)).toBe(true);
+  });
+
+  it("encrypts job queue goal and extra_context", () => {
+    const project = makeProject();
+    db.createProject(project);
+
+    const job = {
+      id: uuid(),
+      projectSlug: project.slug,
+      goal: "Classified operation",
+      team: "solo",
+      priority: 0,
+      status: "pending",
+      source: "manual",
+      sourceId: null,
+      extraContext: "For your eyes only",
+      parentBloopId: null,
+      bloopId: null,
+      error: null,
+      createdAt: new Date().toISOString(),
+      startedAt: null,
+      completedAt: null,
+    };
+    db.createJob(job);
+
+    // API returns decrypted
+    const retrieved = db.getJob(job.id)!;
+    expect(retrieved.goal).toBe("Classified operation");
+    expect(retrieved.extraContext).toBe("For your eyes only");
+
+    // Raw DB has encrypted values
+    const rawDb = new Database(dbPath);
+    const raw = rawDb.prepare("SELECT goal, extra_context FROM job_queue WHERE id = ?").get(job.id) as any;
+    rawDb.close();
+    expect(isEncrypted(raw.goal)).toBe(true);
+    expect(isEncrypted(raw.extra_context)).toBe(true);
+  });
+
+  it("encrypts KG entity description and properties", () => {
+    const project = makeProject();
+    db.createProject(project);
+
+    const entity = {
+      id: uuid(),
+      projectId: project.id,
+      name: "test-entity",
+      entityType: "concept" as const,
+      description: "Secret entity description",
+      properties: { classified: true },
+      sourceBloopId: null,
+      sourceMemoryId: null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    db.createKGEntity(entity);
+
+    // API returns decrypted
+    const retrieved = db.getKGEntity(entity.id)!;
+    expect(retrieved.description).toBe("Secret entity description");
+    expect(retrieved.properties).toEqual({ classified: true });
+
+    // Raw DB has encrypted values
+    const rawDb = new Database(dbPath);
+    const raw = rawDb.prepare("SELECT description, properties FROM kg_entities WHERE id = ?").get(entity.id) as any;
+    rawDb.close();
+    expect(isEncrypted(raw.description)).toBe(true);
+    expect(isEncrypted(raw.properties)).toBe(true);
   });
 });

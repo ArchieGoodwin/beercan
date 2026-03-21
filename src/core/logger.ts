@@ -16,10 +16,29 @@ export interface LogEntry {
   data?: Record<string, unknown>;
 }
 
+// ── Sensitive Field Patterns ─────────────────────────────────
+// Fields whose values should be redacted when log sanitization is active.
+const SENSITIVE_FIELDS = new Set([
+  "goal", "result", "content", "messages", "systemPrompt", "system_prompt",
+  "toolCalls", "tool_calls", "extraContext", "extra_context",
+  "eventData", "event_data", "goalTemplate", "goal_template",
+  "filterData", "filter_data", "passphrase", "password",
+]);
+
+// Regex patterns for API keys/tokens that should always be redacted.
+const SECRET_PATTERNS = [
+  /sk-ant-[a-zA-Z0-9_-]+/g,      // Anthropic API keys
+  /sk-[a-zA-Z0-9]{20,}/g,         // OpenAI-style keys
+  /xoxb-[a-zA-Z0-9-]+/g,          // Slack bot tokens
+  /xoxp-[a-zA-Z0-9-]+/g,          // Slack user tokens
+  /Bearer\s+[a-zA-Z0-9._~+/-]+=*/g, // Bearer tokens
+];
+
 export class Logger {
   private level: number;
   private fileStream: fs.WriteStream | null = null;
   private quiet = false;
+  private sanitizeEnabled = false;
 
   constructor(level: LogLevel = "info", logFilePath?: string) {
     this.level = LEVELS[level];
@@ -31,6 +50,11 @@ export class Logger {
     }
   }
 
+  /** Enable or disable log sanitization (redacts sensitive fields). */
+  setSanitize(enabled: boolean): void {
+    this.sanitizeEnabled = enabled;
+  }
+
   /** Suppress console output (file-only). Used in chat mode. */
   setQuiet(quiet: boolean): void {
     this.quiet = quiet;
@@ -39,12 +63,15 @@ export class Logger {
   private write(level: LogLevel, component: string, message: string, data?: Record<string, unknown>): void {
     if (LEVELS[level] < this.level) return;
 
+    const sanitizedData = this.sanitizeEnabled && data ? Logger.sanitize(data) : data;
+    const sanitizedMessage = this.sanitizeEnabled ? Logger.sanitizeString(message) : message;
+
     const entry: LogEntry = {
       timestamp: new Date().toISOString(),
       level,
       component,
-      message,
-      ...(data && Object.keys(data).length > 0 ? { data } : {}),
+      message: sanitizedMessage,
+      ...(sanitizedData && Object.keys(sanitizedData).length > 0 ? { data: sanitizedData } : {}),
     };
 
     const line = JSON.stringify(entry);
@@ -81,6 +108,38 @@ export class Logger {
   close(): void {
     this.fileStream?.end();
     this.fileStream = null;
+  }
+
+  /** Deep-walk a data object and redact sensitive fields. */
+  static sanitize(data: Record<string, unknown>): Record<string, unknown> {
+    const result: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(data)) {
+      if (SENSITIVE_FIELDS.has(key)) {
+        result[key] = "[REDACTED]";
+      } else if (typeof value === "string") {
+        result[key] = Logger.sanitizeString(value);
+      } else if (Array.isArray(value)) {
+        result[key] = value.map((item) =>
+          typeof item === "object" && item !== null
+            ? Logger.sanitize(item as Record<string, unknown>)
+            : typeof item === "string" ? Logger.sanitizeString(item) : item
+        );
+      } else if (typeof value === "object" && value !== null) {
+        result[key] = Logger.sanitize(value as Record<string, unknown>);
+      } else {
+        result[key] = value;
+      }
+    }
+    return result;
+  }
+
+  /** Scrub known secret patterns from a string. */
+  static sanitizeString(str: string): string {
+    let result = str;
+    for (const pattern of SECRET_PATTERNS) {
+      result = result.replace(pattern, "[REDACTED:key]");
+    }
+    return result;
   }
 }
 

@@ -48,6 +48,15 @@ const ConfigSchema = z.object({
   // Phase 4: Reflection
   reflectionEnabled: z.boolean().default(false),
   reflectionModel: z.string().optional(),
+  // Encryption
+  encryptionEnabled: z.boolean().default(false),
+  encryptionMode: z.enum(["passphrase", "keyfile"]).default("passphrase"),
+  encryptionKeyfile: z.string().optional(),
+  encryptionPassphrase: z.string().optional(),  // For daemon mode (avoids interactive prompt)
+  logSanitize: z.boolean().optional(),           // Force log sanitization on/off
+  // WebSocket TLS
+  wsTlsCert: z.string().optional(),
+  wsTlsKey: z.string().optional(),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;
@@ -113,6 +122,17 @@ export function getConfig(): Config {
         ? process.env.BEERCAN_REFLECTION_ENABLED === "true"
         : undefined,
       reflectionModel: process.env.BEERCAN_REFLECTION_MODEL,
+      encryptionEnabled: process.env.BEERCAN_ENCRYPTION_ENABLED
+        ? process.env.BEERCAN_ENCRYPTION_ENABLED === "true"
+        : undefined,
+      encryptionMode: process.env.BEERCAN_ENCRYPTION_MODE,
+      encryptionKeyfile: process.env.BEERCAN_ENCRYPTION_KEYFILE,
+      encryptionPassphrase: process.env.BEERCAN_ENCRYPTION_PASSPHRASE,
+      logSanitize: process.env.BEERCAN_LOG_SANITIZE
+        ? process.env.BEERCAN_LOG_SANITIZE === "true"
+        : undefined,
+      wsTlsCert: process.env.BEERCAN_WS_TLS_CERT,
+      wsTlsKey: process.env.BEERCAN_WS_TLS_KEY,
     });
   }
   return _config;

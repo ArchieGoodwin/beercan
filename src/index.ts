@@ -35,6 +35,7 @@ import {
 import {
   sendNotificationDefinition, sendNotificationHandler,
 } from "./tools/builtin/notification.js";
+import { CryptoManager } from "./crypto/index.js";
 
 // ── BeerCan Engine ───────────────────────────────────────────
 
@@ -51,6 +52,7 @@ export class BeerCanEngine {
   private scheduler!: Scheduler;
   private eventManager!: EventManager;
   private skillManager: SkillManager;
+  private cryptoManager: CryptoManager;
 
   constructor() {
     // Initialize logger
@@ -58,11 +60,14 @@ export class BeerCanEngine {
     this.logger = new Logger(this.config.logLevel, logFile);
     setGlobalLogger(this.logger);
 
+    // Initialize encryption
+    this.cryptoManager = this.initCrypto();
+
     // Initialize orchestrator database
     const orchestratorDb = path.join(this.config.dataDir, "orchestrator.db");
     fs.mkdirSync(this.config.dataDir, { recursive: true });
 
-    this.db = new BeerCanDB(orchestratorDb);
+    this.db = new BeerCanDB(orchestratorDb, this.cryptoManager);
     this.tools = new ToolRegistry();
     this.memoryManager = new MemoryManager(this.db);
     this.mcpManager = new MCPManager();
@@ -70,7 +75,44 @@ export class BeerCanEngine {
     this.skillManager.load();
     this.registerBuiltinTools();
 
+    // Enable log sanitization when encryption is active or explicitly requested
+    const shouldSanitize = this.config.logSanitize ?? this.config.encryptionEnabled;
+    if (shouldSanitize) {
+      this.logger.setSanitize(true);
+    }
+
+    if (this.cryptoManager.isEnabled()) {
+      this.logger.info("engine", "Encryption enabled", { mode: this.config.encryptionMode });
+    }
     this.logger.info("engine", "BeerCanEngine initialized", { dataDir: this.config.dataDir });
+
+    // Register shutdown hook for key zeroization
+    const cleanup = () => { this.cryptoManager.destroy(); };
+    process.on("exit", cleanup);
+    process.on("SIGTERM", cleanup);
+    process.on("SIGINT", cleanup);
+  }
+
+  private initCrypto(): CryptoManager {
+    if (!this.config.encryptionEnabled) {
+      return CryptoManager.disabled();
+    }
+
+    if (this.config.encryptionMode === "keyfile") {
+      const keyfilePath = this.config.encryptionKeyfile
+        ?? path.join(this.config.dataDir, "master.key");
+      return CryptoManager.fromKeyfile(keyfilePath);
+    }
+
+    // Passphrase mode
+    const passphrase = this.config.encryptionPassphrase;
+    if (!passphrase) {
+      throw new Error(
+        "Encryption enabled in passphrase mode but BEERCAN_ENCRYPTION_PASSPHRASE is not set. " +
+        "Set the env var or use keyfile mode (BEERCAN_ENCRYPTION_MODE=keyfile)."
+      );
+    }
+    return CryptoManager.fromPassphrase(passphrase, this.config.dataDir);
   }
 
   /** Must be called before using the engine — initializes async resources */

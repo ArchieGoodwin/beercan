@@ -7,6 +7,7 @@ import type { Schedule } from "../scheduler/scheduler.js";
 import type { Trigger } from "../events/trigger-manager.js";
 import type { MemoryEntry, MemoryType, KGEntity, KGEdge } from "../memory/schemas.js";
 import type { Job, JobStats } from "../core/job-queue.js";
+import type { CryptoManager, EncryptionScope } from "../crypto/index.js";
 
 // ── Database Manager ─────────────────────────────────────────
 // Uses better-sqlite3 (native SQLite bindings) for performance,
@@ -15,18 +16,58 @@ import type { Job, JobStats } from "../core/job-queue.js";
 
 export class BeerCanDB {
   private db: DatabaseType;
+  private crypto: CryptoManager | null;
 
-  constructor(dbPath: string) {
+  constructor(dbPath: string, crypto?: CryptoManager) {
     const dir = path.dirname(dbPath);
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
     }
 
     this.db = new Database(dbPath);
+    this.crypto = crypto ?? null;
     sqliteVec.load(this.db);
     this.db.pragma("journal_mode = WAL");
     this.db.pragma("foreign_keys = ON");
     this.migrate();
+  }
+
+  // ── Encryption Helpers ─────────────────────────────────────
+
+  /** Encrypt a string field. No-op if crypto is disabled or value is null. */
+  private enc(value: string | null | undefined, scope: EncryptionScope): string | null | undefined {
+    if (value == null || !this.crypto) return value;
+    return this.crypto.encrypt(value, scope);
+  }
+
+  /** Encrypt a JSON field (stringify then encrypt). No-op if crypto is disabled. */
+  private encJSON(value: unknown, scope: EncryptionScope): string {
+    const json = JSON.stringify(value);
+    if (!this.crypto) return json;
+    return this.crypto.encrypt(json, scope);
+  }
+
+  /** Decrypt a string field. Handles mixed encrypted/plaintext data. */
+  private dec(value: string | null | undefined, scope: EncryptionScope): string | null | undefined {
+    if (value == null || !this.crypto) return value;
+    return this.crypto.maybeDecrypt(value, scope);
+  }
+
+  /** Decrypt a JSON field (decrypt then parse). Handles mixed data. */
+  private decJSON(value: string | null | undefined, scope: EncryptionScope): unknown {
+    if (value == null) return value;
+    if (!this.crypto) return JSON.parse(value);
+    return this.crypto.maybeDecryptJSON(value, scope);
+  }
+
+  /** Build a project-scoped encryption scope from a project ID. */
+  private projectScope(projectId: string): EncryptionScope {
+    return { type: "project", projectId };
+  }
+
+  /** Build a global encryption scope. */
+  private globalScope(): EncryptionScope {
+    return { type: "global" };
   }
 
   /** Returns the underlying better-sqlite3 Database instance */
@@ -62,6 +103,7 @@ export class BeerCanDB {
   // ── Projects ─────────────────────────────────────────────
 
   createProject(project: Project): void {
+    const scope = this.projectScope(project.id);
     this.db.prepare(
       `INSERT INTO projects (id, name, slug, description, work_dir, context, allowed_tools, token_budget, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
@@ -71,7 +113,7 @@ export class BeerCanDB {
       project.slug,
       project.description ?? null,
       project.workDir ?? null,
-      JSON.stringify(project.context),
+      this.encJSON(project.context, scope),
       JSON.stringify(project.allowedTools),
       JSON.stringify(project.tokenBudget),
       project.createdAt,
@@ -97,6 +139,7 @@ export class BeerCanDB {
   // ── Bloops ───────────────────────────────────────────────
 
   createBloop(bloop: Bloop): void {
+    const scope = this.projectScope(bloop.projectId);
     this.db.prepare(
       `INSERT INTO loops (id, project_id, parent_loop_id, trigger, status, goal, system_prompt, messages, result, tool_calls, tokens_used, iterations, max_iterations, created_at, updated_at, completed_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
@@ -106,11 +149,11 @@ export class BeerCanDB {
       bloop.parentBloopId,
       bloop.trigger,
       bloop.status,
-      bloop.goal,
-      bloop.systemPrompt ?? null,
-      JSON.stringify(bloop.messages),
-      JSON.stringify(bloop.result),
-      JSON.stringify(bloop.toolCalls),
+      this.enc(bloop.goal, scope),
+      this.enc(bloop.systemPrompt ?? null, scope),
+      this.encJSON(bloop.messages, scope),
+      this.encJSON(bloop.result, scope),
+      this.encJSON(bloop.toolCalls, scope),
       bloop.tokensUsed,
       bloop.iterations,
       bloop.maxIterations,
@@ -121,6 +164,7 @@ export class BeerCanDB {
   }
 
   updateBloop(bloop: Bloop): void {
+    const scope = this.projectScope(bloop.projectId);
     this.db.prepare(
       `UPDATE loops SET
          status = ?, messages = ?, result = ?, tool_calls = ?,
@@ -128,9 +172,9 @@ export class BeerCanDB {
        WHERE id = ?`
     ).run(
       bloop.status,
-      JSON.stringify(bloop.messages),
-      JSON.stringify(bloop.result),
-      JSON.stringify(bloop.toolCalls),
+      this.encJSON(bloop.messages, scope),
+      this.encJSON(bloop.result, scope),
+      this.encJSON(bloop.toolCalls, scope),
       bloop.tokensUsed,
       bloop.iterations,
       bloop.updatedAt,
@@ -158,11 +202,12 @@ export class BeerCanDB {
   }
 
   updateProject(project: Project): void {
+    const scope = this.projectScope(project.id);
     this.db.prepare(
       `UPDATE projects SET name = ?, description = ?, work_dir = ?, context = ?, allowed_tools = ?, token_budget = ?, updated_at = ? WHERE id = ?`
     ).run(
       project.name, project.description ?? null, project.workDir ?? null,
-      JSON.stringify(project.context), JSON.stringify(project.allowedTools),
+      this.encJSON(project.context, scope), JSON.stringify(project.allowedTools),
       JSON.stringify(project.tokenBudget), project.updatedAt, project.id,
     );
   }
@@ -223,13 +268,14 @@ export class BeerCanDB {
   // ── Row Mappers ──────────────────────────────────────────
 
   private rowToProject(row: any): Project {
+    const scope = this.projectScope(row.id);
     return {
       id: row.id,
       name: row.name,
       slug: row.slug,
       description: row.description,
       workDir: row.work_dir ?? undefined,
-      context: JSON.parse(row.context),
+      context: this.decJSON(row.context, scope) as Record<string, unknown>,
       allowedTools: JSON.parse(row.allowed_tools),
       tokenBudget: JSON.parse(row.token_budget),
       createdAt: row.created_at,
@@ -238,17 +284,18 @@ export class BeerCanDB {
   }
 
   private rowToBloop(row: any): Bloop {
+    const scope = this.projectScope(row.project_id);
     return {
       id: row.id,
       projectId: row.project_id,
       parentBloopId: row.parent_loop_id,
       trigger: row.trigger,
       status: row.status,
-      goal: row.goal,
-      systemPrompt: row.system_prompt,
-      messages: JSON.parse(row.messages),
-      result: JSON.parse(row.result),
-      toolCalls: JSON.parse(row.tool_calls),
+      goal: this.dec(row.goal, scope) as string,
+      systemPrompt: this.dec(row.system_prompt, scope) as string | undefined,
+      messages: this.decJSON(row.messages, scope) as Bloop["messages"],
+      result: this.decJSON(row.result, scope) as Bloop["result"],
+      toolCalls: this.decJSON(row.tool_calls, scope) as Bloop["toolCalls"],
       tokensUsed: row.tokens_used,
       iterations: row.iterations,
       maxIterations: row.max_iterations,
@@ -261,12 +308,13 @@ export class BeerCanDB {
   // ── Schedules ──────────────────────────────────────────────
 
   createSchedule(schedule: Schedule): void {
+    const scope = this.projectScope(schedule.projectId);
     this.db.prepare(
       `INSERT INTO schedules (id, project_id, project_slug, cron_expression, goal, team, description, enabled, last_run_at, next_run_at, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       schedule.id, schedule.projectId, schedule.projectSlug,
-      schedule.cronExpression, schedule.goal, schedule.team,
+      schedule.cronExpression, this.enc(schedule.goal, scope), schedule.team,
       schedule.description ?? null, schedule.enabled ? 1 : 0,
       schedule.lastRunAt, schedule.nextRunAt,
       schedule.createdAt, schedule.updatedAt,
@@ -304,13 +352,14 @@ export class BeerCanDB {
   // ── Triggers ──────────────────────────────────────────────
 
   createTrigger(trigger: Trigger): void {
+    const scope = this.projectScope(trigger.projectId);
     this.db.prepare(
       `INSERT INTO triggers (id, project_id, project_slug, event_type, filter_pattern, filter_data, goal_template, team, enabled, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       trigger.id, trigger.projectId, trigger.projectSlug,
       trigger.eventType, trigger.filterPattern,
-      JSON.stringify(trigger.filterData), trigger.goalTemplate,
+      this.encJSON(trigger.filterData, scope), this.enc(trigger.goalTemplate, scope),
       trigger.team, trigger.enabled ? 1 : 0,
       trigger.createdAt, trigger.updatedAt,
     );
@@ -336,21 +385,23 @@ export class BeerCanDB {
   // ── Events Log ────────────────────────────────────────────
 
   logEvent(event: { id: string; projectId: string; eventType: string; eventData: Record<string, unknown>; triggerId: string; createdAt: string }): void {
+    const scope = this.projectScope(event.projectId);
     this.db.prepare(
       `INSERT INTO events_log (id, project_id, event_type, event_data, trigger_id, created_at)
        VALUES (?, ?, ?, ?, ?, ?)`
-    ).run(event.id, event.projectId, event.eventType, JSON.stringify(event.eventData), event.triggerId, event.createdAt);
+    ).run(event.id, event.projectId, event.eventType, this.encJSON(event.eventData, scope), event.triggerId, event.createdAt);
   }
 
   // ── Row Mappers (new) ─────────────────────────────────────
 
   private rowToSchedule(row: any): Schedule {
+    const scope = this.projectScope(row.project_id);
     return {
       id: row.id,
       projectId: row.project_id,
       projectSlug: row.project_slug,
       cronExpression: row.cron_expression,
-      goal: row.goal,
+      goal: this.dec(row.goal, scope) as string,
       team: row.team,
       description: row.description,
       enabled: !!row.enabled,
@@ -362,14 +413,15 @@ export class BeerCanDB {
   }
 
   private rowToTrigger(row: any): Trigger {
+    const scope = this.projectScope(row.project_id);
     return {
       id: row.id,
       projectId: row.project_id,
       projectSlug: row.project_slug,
       eventType: row.event_type,
       filterPattern: row.filter_pattern,
-      filterData: JSON.parse(row.filter_data || "{}"),
-      goalTemplate: row.goal_template,
+      filterData: this.decJSON(row.filter_data || "{}", scope) as Record<string, unknown>,
+      goalTemplate: this.dec(row.goal_template, scope) as string,
       team: row.team,
       enabled: !!row.enabled,
       createdAt: row.created_at,
@@ -380,21 +432,22 @@ export class BeerCanDB {
   // ── Memory Entries ────────────────────────────────────────
 
   createMemoryEntry(entry: MemoryEntry): void {
+    const scope: EncryptionScope = { type: "memory", projectId: entry.projectId };
     this.db.prepare(
       `INSERT INTO memory_entries (id, project_id, memory_type, title, content, source_loop_id, superseded_by, confidence, tags, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       entry.id, entry.projectId, entry.memoryType,
-      entry.title, entry.content, entry.sourceBloopId,
+      this.enc(entry.title, scope), this.enc(entry.content, scope), entry.sourceBloopId,
       entry.supersededBy, entry.confidence,
       JSON.stringify(entry.tags),
       entry.createdAt, entry.updatedAt,
     );
-    // Mirror to FTS5
+    // Mirror plaintext to FTS5 for keyword search (FTS5 stays unencrypted)
     this.db.prepare(
       `INSERT INTO memory_entries_fts (rowid, title, content, memory_type, tags)
-       SELECT rowid, title, content, memory_type, tags FROM memory_entries WHERE id = ?`
-    ).run(entry.id);
+       VALUES ((SELECT rowid FROM memory_entries WHERE id = ?), ?, ?, ?, ?)`
+    ).run(entry.id, entry.title, entry.content, entry.memoryType, JSON.stringify(entry.tags));
   }
 
   getMemoryEntry(id: string): MemoryEntry | null {
@@ -452,12 +505,13 @@ export class BeerCanDB {
   }
 
   private rowToMemoryEntry(row: any): MemoryEntry {
+    const scope: EncryptionScope = { type: "memory", projectId: row.project_id };
     return {
       id: row.id,
       projectId: row.project_id,
       memoryType: row.memory_type,
-      title: row.title,
-      content: row.content,
+      title: this.dec(row.title, scope) as string,
+      content: this.dec(row.content, scope) as string,
       sourceBloopId: row.source_loop_id,
       supersededBy: row.superseded_by,
       confidence: row.confidence,
@@ -470,12 +524,13 @@ export class BeerCanDB {
   // ── Knowledge Graph ─────────────────────────────────────
 
   createKGEntity(entity: KGEntity): void {
+    const scope = this.projectScope(entity.projectId);
     this.db.prepare(
       `INSERT INTO kg_entities (id, project_id, name, entity_type, description, properties, source_loop_id, source_memory_id, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       entity.id, entity.projectId, entity.name, entity.entityType,
-      entity.description, JSON.stringify(entity.properties),
+      this.enc(entity.description, scope), this.encJSON(entity.properties, scope),
       entity.sourceBloopId, entity.sourceMemoryId,
       entity.createdAt, entity.updatedAt,
     );
@@ -517,23 +572,25 @@ export class BeerCanDB {
   updateKGEntity(id: string, updates: { description?: string; properties?: Record<string, unknown> }): void {
     const entity = this.getKGEntity(id);
     if (!entity) return;
+    const scope = this.projectScope(entity.projectId);
     this.db.prepare(
       "UPDATE kg_entities SET description = ?, properties = ?, updated_at = ? WHERE id = ?"
     ).run(
-      updates.description ?? entity.description,
-      JSON.stringify(updates.properties ?? entity.properties),
+      this.enc(updates.description ?? entity.description, scope),
+      this.encJSON(updates.properties ?? entity.properties, scope),
       new Date().toISOString(),
       id,
     );
   }
 
   createKGEdge(edge: KGEdge): void {
+    const scope = this.projectScope(edge.projectId);
     this.db.prepare(
       `INSERT INTO kg_edges (id, project_id, source_id, target_id, edge_type, weight, properties, source_loop_id, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       edge.id, edge.projectId, edge.sourceId, edge.targetId,
-      edge.edgeType, edge.weight, JSON.stringify(edge.properties),
+      edge.edgeType, edge.weight, this.encJSON(edge.properties, scope),
       edge.sourceBloopId, edge.createdAt,
     );
   }
@@ -580,13 +637,14 @@ export class BeerCanDB {
   }
 
   private rowToKGEntity(row: any): KGEntity {
+    const scope = this.projectScope(row.project_id);
     return {
       id: row.id,
       projectId: row.project_id,
       name: row.name,
       entityType: row.entity_type,
-      description: row.description,
-      properties: JSON.parse(row.properties || "{}"),
+      description: this.dec(row.description, scope) as string,
+      properties: this.decJSON(row.properties || "{}", scope) as Record<string, unknown>,
       sourceBloopId: row.source_loop_id,
       sourceMemoryId: row.source_memory_id,
       createdAt: row.created_at,
@@ -595,6 +653,7 @@ export class BeerCanDB {
   }
 
   private rowToKGEdge(row: any): KGEdge {
+    const scope = this.projectScope(row.project_id);
     return {
       id: row.id,
       projectId: row.project_id,
@@ -602,7 +661,7 @@ export class BeerCanDB {
       targetId: row.target_id,
       edgeType: row.edge_type,
       weight: row.weight,
-      properties: JSON.parse(row.properties || "{}"),
+      properties: this.decJSON(row.properties || "{}", scope) as Record<string, unknown>,
       sourceBloopId: row.source_loop_id,
       createdAt: row.created_at,
     };
@@ -611,25 +670,28 @@ export class BeerCanDB {
   // ── Working Memory ──────────────────────────────────────
 
   setWorkingMemory(bloopId: string, key: string, value: string): void {
+    const scope = this.globalScope();
     this.db.prepare(
       `INSERT INTO working_memory (loop_id, key, value, updated_at)
        VALUES (?, ?, ?, ?)
        ON CONFLICT(loop_id, key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`
-    ).run(bloopId, key, value, new Date().toISOString());
+    ).run(bloopId, key, this.enc(value, scope) as string, new Date().toISOString());
   }
 
   getWorkingMemory(bloopId: string, key: string): string | undefined {
     const row = this.db.prepare(
       "SELECT value FROM working_memory WHERE loop_id = ? AND key = ?"
     ).get(bloopId, key) as any;
-    return row?.value;
+    if (!row) return undefined;
+    return this.dec(row.value, this.globalScope()) as string;
   }
 
   listWorkingMemory(bloopId: string): Array<{ key: string; value: string }> {
+    const scope = this.globalScope();
     const rows = this.db.prepare(
       "SELECT key, value FROM working_memory WHERE loop_id = ? ORDER BY key"
     ).all(bloopId) as Array<{ key: string; value: string }>;
-    return rows;
+    return rows.map((r) => ({ key: r.key, value: this.dec(r.value, scope) as string }));
   }
 
   deleteWorkingMemory(bloopId: string, key: string): void {
@@ -744,12 +806,13 @@ export class BeerCanDB {
   // ── Job Queue ────────────────────────────────────────────
 
   createJob(job: Job): void {
+    const scope = this.globalScope();
     this.db.prepare(
       `INSERT INTO job_queue (id, project_slug, goal, team, priority, status, source, source_id, extra_context, parent_loop_id, loop_id, error, created_at, started_at, completed_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
-      job.id, job.projectSlug, job.goal, job.team, job.priority,
-      job.status, job.source, job.sourceId, job.extraContext,
+      job.id, job.projectSlug, this.enc(job.goal, scope), job.team, job.priority,
+      job.status, job.source, job.sourceId, this.enc(job.extraContext, scope),
       job.parentBloopId, job.bloopId, job.error, job.createdAt, job.startedAt, job.completedAt,
     );
   }
@@ -815,16 +878,17 @@ export class BeerCanDB {
   }
 
   private rowToJob(row: any): Job {
+    const scope = this.globalScope();
     return {
       id: row.id,
       projectSlug: row.project_slug,
-      goal: row.goal,
+      goal: this.dec(row.goal, scope) as string,
       team: row.team,
       priority: row.priority,
       status: row.status,
       source: row.source,
       sourceId: row.source_id,
-      extraContext: row.extra_context,
+      extraContext: (this.dec(row.extra_context, scope) as string | null) ?? null,
       parentBloopId: row.parent_loop_id ?? null,
       bloopId: row.loop_id,
       error: row.error,
@@ -1036,5 +1100,12 @@ const MIGRATIONS: Record<string, string> = {
 
   "011_job_queue_parent": `
     ALTER TABLE job_queue ADD COLUMN parent_loop_id TEXT REFERENCES loops(id);
+  `,
+
+  "012_crypto_state": `
+    CREATE TABLE IF NOT EXISTS _crypto_state (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
   `,
 };

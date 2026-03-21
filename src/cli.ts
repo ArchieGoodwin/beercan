@@ -6,6 +6,7 @@ import { BeerCanEngine, PRESET_TEAMS } from "./index.js";
 import { getConfig, getProjectDir } from "./config.js";
 import { startDaemon } from "./events/daemon.js";
 import type { BloopEvent } from "./index.js";
+import type { CryptoManager } from "./crypto/index.js";
 
 // ── Event Logger ─────────────────────────────────────────────
 
@@ -1142,6 +1143,143 @@ Do NOT rewrite everything — make focused, incremental changes.`,
         break;
       }
 
+      // ── Encryption Commands ────────────────────────────────
+
+      case "crypto:status": {
+        const { CryptoManager, isEncrypted } = await import("./crypto/index.js");
+        const cfg = getConfig();
+        console.log(chalk.bold("Encryption Status\n"));
+        console.log(`  Enabled:  ${cfg.encryptionEnabled ? chalk.green("yes") : chalk.dim("no")}`);
+        console.log(`  Mode:     ${cfg.encryptionMode}`);
+        if (cfg.encryptionMode === "keyfile") {
+          const kf = cfg.encryptionKeyfile ?? path.join(cfg.dataDir, "master.key");
+          console.log(`  Keyfile:  ${fs.existsSync(kf) ? chalk.green(kf) : chalk.red(kf + " (not found)")}`);
+        }
+        const cryptoJson = path.join(cfg.dataDir, "crypto.json");
+        console.log(`  Config:   ${fs.existsSync(cryptoJson) ? chalk.green(cryptoJson) : chalk.dim("not configured")}`);
+
+        // Check if DB has any encrypted data
+        const rawDb = (await import("better-sqlite3")).default;
+        const dbPath = path.join(cfg.dataDir, "orchestrator.db");
+        if (fs.existsSync(dbPath)) {
+          const raw = new rawDb(dbPath);
+          const sample = raw.prepare("SELECT goal FROM loops LIMIT 1").get() as any;
+          raw.close();
+          if (sample && isEncrypted(sample.goal)) {
+            console.log(`  Database: ${chalk.green("encrypted data detected")}`);
+          } else if (sample) {
+            console.log(`  Database: ${chalk.yellow("plaintext data")}`);
+          } else {
+            console.log(`  Database: ${chalk.dim("empty")}`);
+          }
+        }
+        break;
+      }
+
+      case "crypto:encrypt": {
+        const cfg = getConfig();
+        if (!cfg.encryptionEnabled) {
+          console.error(chalk.red("Encryption is not enabled. Set BEERCAN_ENCRYPTION_ENABLED=true first."));
+          break;
+        }
+        const { encryptDatabase } = await import("./crypto/migration.js");
+        const rawDb = (await import("better-sqlite3")).default;
+        const dbFile = path.join(cfg.dataDir, "orchestrator.db");
+        const db2 = new rawDb(dbFile);
+        // Ensure _crypto_state table exists
+        db2.exec("CREATE TABLE IF NOT EXISTS _crypto_state (key TEXT PRIMARY KEY, value TEXT NOT NULL)");
+
+        const { CryptoManager: CM } = await import("./crypto/index.js");
+        let cm: CryptoManager;
+        if (cfg.encryptionMode === "keyfile") {
+          const kf = cfg.encryptionKeyfile ?? path.join(cfg.dataDir, "master.key");
+          cm = CM.fromKeyfile(kf);
+        } else {
+          const pass = cfg.encryptionPassphrase;
+          if (!pass) {
+            console.error(chalk.red("BEERCAN_ENCRYPTION_PASSPHRASE not set."));
+            db2.close();
+            break;
+          }
+          cm = CM.fromPassphrase(pass, cfg.dataDir);
+        }
+
+        console.log(chalk.dim("Encrypting database..."));
+        const result = encryptDatabase(db2, cm);
+        cm.destroy();
+        db2.close();
+
+        console.log(chalk.green(`✓ Encrypted ${result.rowsEncrypted} rows across ${result.tablesProcessed} tables.`));
+        if (result.rowsSkipped > 0) {
+          console.log(chalk.dim(`  Skipped ${result.rowsSkipped} already-encrypted rows.`));
+        }
+        break;
+      }
+
+      case "crypto:decrypt": {
+        const cfg = getConfig();
+        const { decryptDatabase } = await import("./crypto/migration.js");
+        const rawDb = (await import("better-sqlite3")).default;
+        const dbFile = path.join(cfg.dataDir, "orchestrator.db");
+        const db2 = new rawDb(dbFile);
+
+        const { CryptoManager: CM } = await import("./crypto/index.js");
+        let cm: CryptoManager;
+        if (cfg.encryptionMode === "keyfile") {
+          const kf = cfg.encryptionKeyfile ?? path.join(cfg.dataDir, "master.key");
+          cm = CM.fromKeyfile(kf);
+        } else {
+          const pass = cfg.encryptionPassphrase;
+          if (!pass) {
+            console.error(chalk.red("BEERCAN_ENCRYPTION_PASSPHRASE not set."));
+            db2.close();
+            break;
+          }
+          cm = CM.fromPassphrase(pass, cfg.dataDir);
+        }
+
+        console.log(chalk.dim("Decrypting database..."));
+        const result = decryptDatabase(db2, cm);
+        cm.destroy();
+        db2.close();
+
+        console.log(chalk.green(`✓ Decrypted ${result.rowsEncrypted} rows across ${result.tablesProcessed} tables.`));
+        break;
+      }
+
+      case "crypto:setup": {
+        const { KeyManager } = await import("./crypto/index.js");
+        const readline = await import("readline");
+        const cfg = getConfig();
+        const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+        const ask = (q: string): Promise<string> => new Promise((r) => rl.question(q, r));
+
+        console.log(chalk.bold("Encryption Setup\n"));
+        const mode = await ask("Key mode (passphrase/keyfile) [passphrase]: ");
+        const chosenMode = mode.trim() === "keyfile" ? "keyfile" : "passphrase";
+
+        if (chosenMode === "keyfile") {
+          const kfPath = path.join(cfg.dataDir, "master.key");
+          KeyManager.generateKeyfile(kfPath, cfg.dataDir);
+          console.log(chalk.green(`\n✓ Keyfile generated: ${kfPath}`));
+          console.log(chalk.dim("Add to .env: BEERCAN_ENCRYPTION_ENABLED=true"));
+          console.log(chalk.dim("             BEERCAN_ENCRYPTION_MODE=keyfile"));
+        } else {
+          const pass = await ask("Enter passphrase: ");
+          if (!pass.trim()) {
+            console.error(chalk.red("Passphrase cannot be empty."));
+            rl.close();
+            break;
+          }
+          KeyManager.fromPassphrase(pass.trim(), cfg.dataDir);
+          console.log(chalk.green("\n✓ Passphrase configured."));
+          console.log(chalk.dim("Add to .env: BEERCAN_ENCRYPTION_ENABLED=true"));
+          console.log(chalk.dim("             BEERCAN_ENCRYPTION_PASSPHRASE=<your passphrase>"));
+        }
+        rl.close();
+        break;
+      }
+
       // ── Help ────────────────────────────────────────────────
 
       default:
@@ -1173,6 +1311,12 @@ Do NOT rewrite everything — make focused, incremental changes.`,
         console.log(chalk.cyan("  tool:remove <name>") + chalk.dim("                    Remove a custom tool"));
         console.log(chalk.cyan("  mcp:add <project> <name> <cmd> [args]") + chalk.dim("  Add MCP server"));
         console.log(chalk.cyan("  mcp:list <project>") + chalk.dim("                    List MCP servers"));
+        console.log();
+        console.log(chalk.bold("Encryption:"));
+        console.log(chalk.cyan("  crypto:setup") + chalk.dim("                          Configure encryption (passphrase or keyfile)"));
+        console.log(chalk.cyan("  crypto:status") + chalk.dim("                         Show encryption status"));
+        console.log(chalk.cyan("  crypto:encrypt") + chalk.dim("                        Encrypt existing database"));
+        console.log(chalk.cyan("  crypto:decrypt") + chalk.dim("                        Decrypt database to plaintext"));
         console.log();
         console.log(chalk.bold("System:"));
         console.log(chalk.cyan("  setup") + chalk.dim("                                 First-time setup (API keys, config)"));
