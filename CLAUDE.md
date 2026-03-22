@@ -78,6 +78,7 @@ CLI commands via `npm run beercan --` (or `beercan` if installed globally):
 - `src/tools/builtin/filesystem.ts` — tools: read_file, write_file, list_directory, exec_command
 - `src/tools/builtin/web.ts` — tools: web_fetch (Cloudflare Browser Rendering + native fallback), http_request
 - `src/tools/builtin/notification.ts` — tool: send_notification (macOS osascript + console fallback)
+- `src/tools/builtin/environment.ts` — 4 environment tools (get_datetime, get_system_info, get_network_info, get_env_info)
 - `src/tools/builtin/calendar.ts` — 4 calendar tools (macOS EventKit via compiled Swift helper)
 - `src/tools/builtin/memory.ts` — 6 memory tools for agents
 - `src/tools/builtin/spawning.ts` — 6 spawning + cross-project tools (spawn_bloop, get_bloop_result, list_child_bloops, list_projects, search_cross_project, search_previous_attempts)
@@ -187,7 +188,7 @@ Provider-agnostic chat layer for interacting with BeerCan via natural language.
 
 ## Tool System
 
-36 built-in tools registered at engine construction:
+40 built-in tools registered at engine construction:
 
 | Tool | Category | Description |
 |------|----------|-------------|
@@ -198,6 +199,10 @@ Provider-agnostic chat layer for interacting with BeerCan via natural language.
 | `web_fetch` | Web | Fetch URL content — uses Cloudflare Browser Rendering API if configured, native fetch fallback |
 | `http_request` | Web | Full HTTP request (any method, headers, body) |
 | `send_notification` | Notification | Desktop notification (macOS osascript, console fallback) |
+| `get_datetime` | Environment | Current date, time, timezone, locale, unix timestamp |
+| `get_system_info` | Environment | OS, hostname, CPU, memory, uptime, user |
+| `get_network_info` | Environment | Local IPs, network interfaces, public IP detection |
+| `get_env_info` | Environment | Working directory, env vars (secrets redacted) |
 | `calendar_list` | Calendar | List all calendars on macOS (name, source, writable) |
 | `calendar_get_events` | Calendar | Get events in a date range with optional calendar filter |
 | `calendar_create_event` | Calendar | Create calendar event (title, dates, location, notes, all-day) |

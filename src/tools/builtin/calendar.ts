@@ -57,10 +57,10 @@ export const calendarGetEventsDefinition: ToolDefinition = {
 
 export const calendarGetEventsHandler: ToolHandler = async (input) => {
   assertMacOS();
-  const startDate = (input.start_date as string) || new Date().toISOString().slice(0, 10);
+  const startDate = (input.start_date as string) || localDateStr();
   const endDate =
     (input.end_date as string) ||
-    new Date(new Date(startDate).getTime() + 7 * 86400000).toISOString().slice(0, 10);
+    localDateStr(new Date(new Date(startDate + "T00:00:00").getTime() + 7 * 86400000));
   return runHelper("events", {
     start: startDate,
     end: endDate,
@@ -138,8 +138,8 @@ export const calendarSearchDefinition: ToolDefinition = {
 export const calendarSearchHandler: ToolHandler = async (input) => {
   assertMacOS();
   const now = Date.now();
-  const startDate = (input.start_date as string) || new Date(now - 30 * 86400000).toISOString().slice(0, 10);
-  const endDate = (input.end_date as string) || new Date(now + 30 * 86400000).toISOString().slice(0, 10);
+  const startDate = (input.start_date as string) || localDateStr(new Date(now - 30 * 86400000));
+  const endDate = (input.end_date as string) || localDateStr(new Date(now + 30 * 86400000));
   return runHelper("search", {
     query: input.query,
     start: startDate,
@@ -148,6 +148,14 @@ export const calendarSearchHandler: ToolHandler = async (input) => {
 };
 
 // ── Helpers ───────────────────────────────────────────────────
+
+/** Get local date string in YYYY-MM-DD format (not UTC) */
+function localDateStr(date: Date = new Date()): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
 
 function assertMacOS(): void {
   if (process.platform !== "darwin") {
@@ -248,6 +256,10 @@ let iso = ISO8601DateFormatter()
 // Also parse full ISO datetime
 let isoFull = ISO8601DateFormatter()
 isoFull.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+// Local ISO formatter (with timezone offset instead of Z)
+let localISO = DateFormatter()
+localISO.dateFormat = "yyyy-MM-dd'T'HH:mm:ssxxx"
+localISO.timeZone = TimeZone.current
 
 func parseDate(_ s: String) -> Date? {
     return df.date(from: s) ?? iso.date(from: s) ?? isoFull.date(from: s) ?? {
@@ -262,14 +274,15 @@ func parseDate(_ s: String) -> Date? {
 func eventToDict(_ ev: EKEvent) -> [String: Any] {
     return [
         "title": ev.title ?? "",
-        "start": iso.string(from: ev.startDate),
-        "end": iso.string(from: ev.endDate),
+        "start": localISO.string(from: ev.startDate),
+        "end": localISO.string(from: ev.endDate),
         "location": ev.location ?? "",
         "notes": (ev.notes ?? "").prefix(500),
         "calendar": ev.calendar.title,
         "source": ev.calendar.source.title,
         "allDay": ev.isAllDay,
-        "uid": ev.eventIdentifier ?? ""
+        "uid": ev.eventIdentifier ?? "",
+        "timezone": TimeZone.current.identifier
     ]
 }
 
@@ -366,9 +379,10 @@ case "create":
             "success": true,
             "uid": event.eventIdentifier ?? "",
             "title": event.title ?? "",
-            "start": iso.string(from: event.startDate),
-            "end": iso.string(from: event.endDate),
-            "calendar": event.calendar.title
+            "start": localISO.string(from: event.startDate),
+            "end": localISO.string(from: event.endDate),
+            "calendar": event.calendar.title,
+            "timezone": TimeZone.current.identifier
         ]
         output(result)
     } catch {

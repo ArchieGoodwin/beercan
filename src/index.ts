@@ -42,6 +42,12 @@ import {
   calendarCreateEventDefinition, calendarCreateEventHandler,
   calendarSearchDefinition, calendarSearchHandler,
 } from "./tools/builtin/calendar.js";
+import {
+  getDateTimeDefinition, getDateTimeHandler,
+  getSystemInfoDefinition, getSystemInfoHandler,
+  getNetworkInfoDefinition, getNetworkInfoHandler,
+  getEnvInfoDefinition, getEnvInfoHandler,
+} from "./tools/builtin/environment.js";
 import { CryptoManager } from "./crypto/index.js";
 import { ensureSystemProjects } from "./core/system-projects.js";
 
@@ -208,6 +214,12 @@ export class BeerCanEngine {
 
     // Notification tool
     this.tools.register(sendNotificationDefinition, sendNotificationHandler);
+
+    // Environment tools
+    this.tools.register(getDateTimeDefinition, getDateTimeHandler);
+    this.tools.register(getSystemInfoDefinition, getSystemInfoHandler);
+    this.tools.register(getNetworkInfoDefinition, getNetworkInfoHandler);
+    this.tools.register(getEnvInfoDefinition, getEnvInfoHandler);
 
     // Calendar tools (macOS)
     if (process.platform === "darwin") {

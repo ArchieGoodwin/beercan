@@ -501,10 +501,13 @@ export class BloopRunner {
       parts.push(`\n--- Additional Context ---\n${extraContext}`);
     }
 
+    const now = new Date();
     const sysLines = [
       `Project: ${project.name}`,
       `Your Role: ${role.name} (${role.id})`,
       `Goal: ${goal}`,
+      `Current Date/Time: ${now.toLocaleString()} (${Intl.DateTimeFormat().resolvedOptions().timeZone}, UTC${now.getTimezoneOffset() <= 0 ? "+" : "-"}${String(Math.floor(Math.abs(now.getTimezoneOffset()) / 60)).padStart(2, "0")}:${String(Math.abs(now.getTimezoneOffset()) % 60).padStart(2, "0")})`,
+      `Today: ${now.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}`,
     ];
     if (project.workDir) {
       sysLines.push(`Working Directory: ${project.workDir}`);
@@ -541,6 +544,7 @@ export class BloopRunner {
   private static BUILTIN_TOOL_NAMES = new Set([
     "read_file", "write_file", "append_file", "list_directory", "exec_command",
     "web_fetch", "http_request", "send_notification",
+    "get_datetime", "get_system_info", "get_network_info", "get_env_info",
     "memory_search", "memory_store", "memory_update", "memory_delete", "memory_link", "memory_query_graph", "memory_scratch",
     "spawn_bloop", "get_bloop_result", "list_child_bloops", "list_projects", "search_cross_project", "search_previous_attempts", "list_jobs",
     "create_schedule", "create_trigger", "list_schedules", "list_triggers", "remove_schedule", "remove_trigger",
