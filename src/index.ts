@@ -19,6 +19,7 @@ import type { Project, Bloop } from "./schemas.js";
 import {
   readFileDefinition, readFileHandler,
   writeFileDefinition, writeFileHandler,
+  appendFileDefinition, appendFileHandler,
   listDirDefinition, listDirHandler,
   execDefinition, execHandler,
 } from "./tools/builtin/filesystem.js";
@@ -197,6 +198,7 @@ export class BeerCanEngine {
     // Filesystem tools
     this.tools.register(readFileDefinition, readFileHandler);
     this.tools.register(writeFileDefinition, writeFileHandler);
+    this.tools.register(appendFileDefinition, appendFileHandler);
     this.tools.register(listDirDefinition, listDirHandler);
     this.tools.register(execDefinition, execHandler);
 

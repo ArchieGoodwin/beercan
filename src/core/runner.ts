@@ -536,7 +536,7 @@ export class BloopRunner {
   }
 
   private static BUILTIN_TOOL_NAMES = new Set([
-    "read_file", "write_file", "list_directory", "exec_command",
+    "read_file", "write_file", "append_file", "list_directory", "exec_command",
     "web_fetch", "http_request", "send_notification",
     "memory_search", "memory_store", "memory_update", "memory_link", "memory_query_graph", "memory_scratch",
     "spawn_bloop", "get_bloop_result", "list_child_bloops", "list_projects", "search_cross_project", "search_previous_attempts",

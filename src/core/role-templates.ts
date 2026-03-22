@@ -22,7 +22,7 @@ Rules:
 - Cite sources and reference specific details from research.
 - If the task is documentation, follow the project's existing doc conventions.
 - Save your work to a file so reviewers can read it.`,
-    allowedTools: ["read_file", "write_file", "list_directory", "web_fetch", "memory_search", "memory_store", "memory_scratch"],
+    allowedTools: ["read_file", "write_file", "append_file", "list_directory", "web_fetch", "memory_search", "memory_store", "memory_scratch"],
     phase: "primary",
     maxIterations: 15,
   },
@@ -88,7 +88,7 @@ Rules:
 - Log processing statistics (records processed, errors, etc.).
 - Use exec_command for batch operations when appropriate.
 - Use web_fetch or http_request to retrieve data from URLs or APIs.`,
-    allowedTools: ["read_file", "write_file", "list_directory", "exec_command", "web_fetch", "http_request", "memory_search", "memory_scratch"],
+    allowedTools: ["read_file", "write_file", "append_file", "list_directory", "exec_command", "web_fetch", "http_request", "memory_search", "memory_scratch"],
     phase: "primary",
     maxIterations: 20,
   },
@@ -167,7 +167,7 @@ Rules:
 - Check for existing configuration before creating new ones.
 - Use exec_command carefully — prefer read-only checks first.
 - Store operational decisions in memory for future reference.`,
-    allowedTools: ["read_file", "write_file", "list_directory", "exec_command", "memory_search", "memory_store", "memory_scratch"],
+    allowedTools: ["read_file", "write_file", "append_file", "list_directory", "exec_command", "memory_search", "memory_store", "memory_scratch"],
     phase: "primary",
     maxIterations: 20,
   },

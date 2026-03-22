@@ -33,7 +33,8 @@ export const readFileHandler: ToolHandler = async (input) => {
 export const writeFileDefinition: ToolDefinition = {
   name: "write_file",
   description:
-    "Write content to a file. Creates parent directories if needed. Overwrites existing files.",
+    "Write content to a file. Creates parent directories if needed. Overwrites existing files. " +
+    "For large files (>4000 chars), write the first section with write_file then use append_file for the rest.",
   inputSchema: {
     type: "object",
     properties: {
@@ -69,6 +70,47 @@ export const writeFileHandler: ToolHandler = async (input) => {
 
   fs.writeFileSync(filePath, content, "utf-8");
   return `Written ${content.length} chars to ${filePath}`;
+};
+
+// ── Append File ─────────────────────────────────────────────
+
+export const appendFileDefinition: ToolDefinition = {
+  name: "append_file",
+  description:
+    "Append content to a file. Creates the file if it doesn't exist. Use this to write large files in chunks — " +
+    "call write_file for the first section, then append_file for each subsequent section.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      path: {
+        type: "string",
+        description: "Absolute or relative file path to append to",
+      },
+      content: {
+        type: "string",
+        description: "Content to append to the file",
+      },
+    },
+    required: ["path", "content"],
+  },
+};
+
+export const appendFileHandler: ToolHandler = async (input) => {
+  const filePath = input.path as string;
+  const content = input.content as string;
+
+  if (content == null || typeof content !== "string") {
+    throw new Error("'content' parameter is required and must be a non-empty string.");
+  }
+
+  const dir = path.dirname(filePath);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+
+  fs.appendFileSync(filePath, content, "utf-8");
+  const totalSize = fs.statSync(filePath).size;
+  return `Appended ${content.length} chars to ${filePath} (total file size: ${totalSize} bytes)`;
 };
 
 // ── List Directory ───────────────────────────────────────────
