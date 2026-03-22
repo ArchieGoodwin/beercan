@@ -1190,6 +1190,10 @@ Do NOT rewrite everything — make focused, incremental changes.`,
 
           printStartupInfo(child.pid!);
           console.log(chalk.dim(`\n  Stop: beercan stop\n`));
+
+          // Close engine so the parent process can exit (DB handles keep it alive)
+          await engine.close();
+          process.exit(0);
         }
         break;
       }
