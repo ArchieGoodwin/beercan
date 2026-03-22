@@ -73,7 +73,7 @@ export function registerBloopHandlers(webhook: WebhookSource, engine: BeerCanEng
 
     // Try partial ID match
     if (!bloop) {
-      for (const p of engine.listProjects()) {
+      for (const p of engine.listProjects({ includeSystem: true })) {
         const pBloops = engine.getProjectBloops(p.slug);
         const match = pBloops.find((b) => b.id.startsWith(params.id));
         if (match) { bloop = match; break; }

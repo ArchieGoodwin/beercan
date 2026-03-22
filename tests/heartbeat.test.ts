@@ -14,6 +14,7 @@ function makeProject(overrides: Partial<Project> = {}): Project {
     id: "proj-1",
     name: "Test Project",
     slug: "test",
+    system: false,
     context: {},
     allowedTools: ["*"],
     tokenBudget: { dailyLimit: 100000, perBloopLimit: 20000 },
@@ -26,13 +27,13 @@ function makeProject(overrides: Partial<Project> = {}): Project {
 describe("HeartbeatManager", () => {
   let dbPath: string;
   let db: BeerCanDB;
-  let bloopsRun: any[];
+  let bloopsEnqueued: any[];
   let eventsPublished: any[];
 
   beforeEach(() => {
     dbPath = tmpDb();
     db = new BeerCanDB(dbPath);
-    bloopsRun = [];
+    bloopsEnqueued = [];
     eventsPublished = [];
 
     const now = new Date().toISOString();
@@ -40,6 +41,7 @@ describe("HeartbeatManager", () => {
       id: "proj-1",
       name: "Test Project",
       slug: "test",
+      system: false,
       context: {
         heartbeat: {
           enabled: true,
@@ -58,6 +60,7 @@ describe("HeartbeatManager", () => {
       id: "proj-2",
       name: "No Heartbeat",
       slug: "no-hb",
+      system: false,
       context: {},
       allowedTools: ["*"],
       tokenBudget: { dailyLimit: 100000, perBloopLimit: 20000 },
@@ -78,14 +81,9 @@ describe("HeartbeatManager", () => {
     return new HeartbeatManager(
       db,
       {
-        runBloop: async (opts) => {
-          bloopsRun.push(opts);
-          return {
-            id: "hb-bloop-1",
-            status: "completed",
-            result: opts.goal.includes("empty") ? "HEARTBEAT_EMPTY" : "Found 3 errors in logs",
-            tokensUsed: 500,
-          };
+        enqueueBloop: (opts) => {
+          bloopsEnqueued.push(opts);
+          return "job-id-1";
         },
       },
       {
@@ -188,7 +186,7 @@ describe("HeartbeatManager", () => {
   // ── Heartbeat execution ───────────────────────────────────
 
   describe("runHeartbeat", () => {
-    it("runs a heartbeat bloop with checklist goal", async () => {
+    it("enqueues a heartbeat bloop to _heartbeat project", () => {
       const manager = makeManager();
       const project = makeProject();
       const config: HeartbeatConfig = {
@@ -198,93 +196,18 @@ describe("HeartbeatManager", () => {
         suppressIfEmpty: true,
       };
 
-      await manager.runHeartbeat(project, config);
+      manager.runHeartbeat(project, config);
 
-      expect(bloopsRun).toHaveLength(1);
-      expect(bloopsRun[0].projectSlug).toBe("test");
-      expect(bloopsRun[0].goal).toContain("Check logs");
-      expect(bloopsRun[0].team).toBe("solo");
+      expect(bloopsEnqueued).toHaveLength(1);
+      expect(bloopsEnqueued[0].projectSlug).toBe("_heartbeat");
+      expect(bloopsEnqueued[0].goal).toContain("Check logs");
+      expect(bloopsEnqueued[0].source).toBe("cron");
+      expect(bloopsEnqueued[0].sourceId).toBe("heartbeat:test");
+      expect(bloopsEnqueued[0].extraContext).toContain("Target project: test");
+      expect(bloopsEnqueued[0].priority).toBe(-1);
     });
 
-    it("publishes event when findings are reported", async () => {
-      const manager = makeManager();
-      const project = makeProject();
-      const config: HeartbeatConfig = {
-        enabled: true,
-        intervalMinutes: 30,
-        checklist: ["Check errors"],
-        suppressIfEmpty: true,
-      };
-
-      await manager.runHeartbeat(project, config);
-
-      expect(eventsPublished).toHaveLength(1);
-      expect(eventsPublished[0].type).toBe("heartbeat:result");
-      expect(eventsPublished[0].data.result).toContain("Found 3 errors");
-    });
-
-    it("suppresses empty heartbeat when configured", async () => {
-      const manager = new HeartbeatManager(
-        db,
-        {
-          runBloop: async (opts) => {
-            bloopsRun.push(opts);
-            return {
-              id: "hb-2",
-              status: "completed",
-              result: { summary: "HEARTBEAT_EMPTY" },
-              tokensUsed: 200,
-            };
-          },
-        },
-        { publish: (event) => { eventsPublished.push(event); } },
-      );
-
-      const project = makeProject();
-      const config: HeartbeatConfig = {
-        enabled: true,
-        intervalMinutes: 30,
-        checklist: ["Check empty things"],
-        suppressIfEmpty: true,
-      };
-
-      await manager.runHeartbeat(project, config);
-
-      expect(bloopsRun).toHaveLength(1);
-      expect(eventsPublished).toHaveLength(0); // Suppressed!
-    });
-
-    it("does not suppress when suppressIfEmpty is false", async () => {
-      const manager = new HeartbeatManager(
-        db,
-        {
-          runBloop: async (opts) => {
-            bloopsRun.push(opts);
-            return {
-              id: "hb-3",
-              status: "completed",
-              result: { summary: "HEARTBEAT_EMPTY" },
-              tokensUsed: 200,
-            };
-          },
-        },
-        { publish: (event) => { eventsPublished.push(event); } },
-      );
-
-      const project = makeProject();
-      const config: HeartbeatConfig = {
-        enabled: true,
-        intervalMinutes: 30,
-        checklist: [],
-        suppressIfEmpty: false,
-      };
-
-      await manager.runHeartbeat(project, config);
-
-      expect(eventsPublished).toHaveLength(1); // Not suppressed
-    });
-
-    it("skips heartbeat outside active hours", async () => {
+    it("skips heartbeat outside active hours", () => {
       const manager = makeManager();
       const project = makeProject();
       const now = new Date();
@@ -301,9 +224,9 @@ describe("HeartbeatManager", () => {
         suppressIfEmpty: true,
       };
 
-      await manager.runHeartbeat(project, config);
+      manager.runHeartbeat(project, config);
 
-      expect(bloopsRun).toHaveLength(0); // Skipped
+      expect(bloopsEnqueued).toHaveLength(0); // Skipped
     });
   });
 

@@ -39,7 +39,7 @@ function collectEvent(event: BloopEvent) {
 
 beforeAll(async () => {
   // Override data dir to isolated temp
-  process.env.LOOPS_DATA_DIR = TEST_DATA_DIR;
+  process.env.BEERCAN_DATA_DIR = TEST_DATA_DIR;
 
   engine = await new BeerCanEngine().init();
   engine.createProject({

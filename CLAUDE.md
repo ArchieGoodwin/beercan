@@ -13,7 +13,7 @@ npm run build              # TypeScript compilation (tsc)
 npm run dev                # Watch mode with tsx
 npm run beercan -- <cmd>   # Run CLI commands (tsx src/cli.ts)
 npm start                  # Run compiled output (node dist/index.ts)
-npm test                   # Unit tests (213 tests, vitest)
+npm test                   # Unit tests (311 tests, vitest)
 npm run test:integration   # Integration tests with real Claude API
 npm run test:all           # All tests (unit + integration)
 ```
@@ -22,8 +22,8 @@ CLI commands via `npm run beercan --` (or `beercan` if installed globally):
 
 **Projects:**
 - `init <name> [--work-dir <path>]` — create a project, optionally scoped to a folder
-- `projects` — list all projects
-- `status` — overview of all projects with bloop counts and token usage
+- `projects` — list all projects (use `--all` for system projects, `--system` for system only)
+- `status` — overview of all projects with bloop counts and token usage (use `--all` to include system projects)
 
 **Bloop execution:**
 - `run <project> [team] <goal>` — run a bloop (teams: auto, solo, code_review, managed, full_team). Default team is `auto` (gatekeeper picks).
@@ -66,15 +66,19 @@ CLI commands via `npm run beercan --` (or `beercan` if installed globally):
 - `src/core/runner.ts` — `BloopRunner`, pipeline execution with multi-agent orchestration + post-bloop reflection
 - `src/core/reflection.ts` — `ReflectionEngine`, post-bloop analysis via Haiku structured output
 - `src/core/heartbeat.ts` — `HeartbeatManager`, per-project periodic awareness loops
+- `src/core/system-projects.ts` — 4 system project definitions (`_heartbeat`, `_triggers`, `_maintenance`, `_calendar`) + auto-creation
+- `src/core/maintenance-manager.ts` — `MaintenanceManager`, periodic memory/job cleanup via `_maintenance` project
+- `src/core/calendar-manager.ts` — `CalendarManager`, schedule-aware automation via `_calendar` project
 - `src/core/roles.ts` — 5 built-in agent role definitions, team presets, pipeline configs
-- `src/schemas.ts` — core domain types as Zod schemas (Bloop, Project with workDir, ToolCallRecord)
+- `src/schemas.ts` — core domain types as Zod schemas (Bloop, Project with workDir/system flag, ToolCallRecord)
 - `src/config.ts` — environment config with Zod validation
 - `src/cli.ts` — CLI with run/history/result/status/jobs commands
-- `src/storage/database.ts` — `BeerCanDB`, SQLite via better-sqlite3 + sqlite-vec, WAL mode, 11 migrations
+- `src/storage/database.ts` — `BeerCanDB`, SQLite via better-sqlite3 + sqlite-vec, WAL mode, 13 migrations
 - `src/tools/registry.ts` — tool registration and dispatch
 - `src/tools/builtin/filesystem.ts` — tools: read_file, write_file, list_directory, exec_command
 - `src/tools/builtin/web.ts` — tools: web_fetch (Cloudflare Browser Rendering + native fallback), http_request
 - `src/tools/builtin/notification.ts` — tool: send_notification (macOS osascript + console fallback)
+- `src/tools/builtin/calendar.ts` — 4 calendar tools (macOS EventKit via compiled Swift helper)
 - `src/tools/builtin/memory.ts` — 6 memory tools for agents
 - `src/tools/builtin/spawning.ts` — 6 spawning + cross-project tools (spawn_bloop, get_bloop_result, list_child_bloops, list_projects, search_cross_project, search_previous_attempts)
 - `src/tools/builtin/scheduling.ts` — 6 self-scheduling tools (create/remove schedules + triggers)
@@ -183,7 +187,7 @@ Provider-agnostic chat layer for interacting with BeerCan via natural language.
 
 ## Tool System
 
-32 built-in tools registered at engine construction:
+36 built-in tools registered at engine construction:
 
 | Tool | Category | Description |
 |------|----------|-------------|
@@ -194,6 +198,10 @@ Provider-agnostic chat layer for interacting with BeerCan via natural language.
 | `web_fetch` | Web | Fetch URL content — uses Cloudflare Browser Rendering API if configured, native fetch fallback |
 | `http_request` | Web | Full HTTP request (any method, headers, body) |
 | `send_notification` | Notification | Desktop notification (macOS osascript, console fallback) |
+| `calendar_list` | Calendar | List all calendars on macOS (name, source, writable) |
+| `calendar_get_events` | Calendar | Get events in a date range with optional calendar filter |
+| `calendar_create_event` | Calendar | Create calendar event (title, dates, location, notes, all-day) |
+| `calendar_search` | Calendar | Search events by keyword in title/notes |
 | `memory_search` | Memory | Hybrid search across all layers (FTS5 + vector + graph RRF) |
 | `memory_store` | Memory | Store new memory (fact/insight/decision/note) |
 | `memory_update` | Memory | Supersede existing memory with new version |
@@ -226,6 +234,8 @@ Provider-agnostic chat layer for interacting with BeerCan via natural language.
 
 **CLI:** `beercan tool:create <name>`, `beercan tool:list`, `beercan tool:remove <name>`.
 
+**Calendar tools (macOS):** Native macOS calendar access via compiled Swift/EventKit helper binary. Auto-compiled on first use, cached at `~/.beercan/calendar-helper`. Only registered when `process.platform === "darwin"`.
+
 ## Skills System
 
 Higher-level workflow recipes that orchestrate tools. Skills provide step-by-step instructions, trigger keywords, and config that are automatically injected into agent context when a bloop goal matches.
@@ -247,7 +257,7 @@ Agents can create child bloops, delegate to other projects, and search global kn
 Agents create their own cron schedules and event triggers. `create_schedule` with frequency validation (min 5min interval). `create_trigger` with regex matching and `{{data.field}}` goal interpolation. Max 20 each per project.
 
 ### Heartbeat System
-Per-project periodic awareness loop. `HeartbeatManager` runs in daemon mode, checks configurable checklists at intervals, suppresses silent results. Config stored in `project.context.heartbeat`. Active hours enforcement. Uses dedicated heartbeat role template.
+Per-project periodic awareness loop. `HeartbeatManager` in daemon mode enqueues heartbeat bloops into the `_heartbeat` system project via the job queue. Bloops go through the normal Gatekeeper + memory + skills pipeline. Config stored in `project.context.heartbeat`. Active hours enforcement. System projects accumulate memory over time, learning what 'normal' looks like.
 
 ### Self-Education (Reflection)
 Opt-in post-bloop reflection via lightweight Haiku call. `ReflectionEngine` extracts lessons, patterns, errors into memory with `["reflection"]` tags. Creates knowledge graph entities linking bloops to lessons and error resolutions. `retrieveContext()` automatically injects relevant lessons from past bloops. Enable: `BEERCAN_REFLECTION_ENABLED=true` or `project.context.reflectionEnabled: true`. Includes periodic consolidation for merging duplicate memories.
@@ -257,6 +267,25 @@ Agents create and manage skills via `create_skill`, `update_skill`. Modify proje
 
 ### Build-Verify-Integrate Pipeline
 Agents build artifacts, spawn verification child bloops, and auto-register tools/skills on APPROVE. `verify_and_integrate` orchestrates the full cycle. `register_tool_from_file` validates exports and runs test commands before registration. Dedicated `verifier` role template.
+
+## System Projects
+
+Four auto-created system projects that make BeerCan proactive and self-aware. Created during `engine.init()`, hidden from default project listings (`projects --all` to show).
+
+| Project | Purpose | Manager |
+|---------|---------|---------|
+| `_heartbeat` | Periodic health checks for monitored projects | `HeartbeatManager` — interval timer per project |
+| `_triggers` | Event reaction processing via EventBus | `TriggerManager` — matches events against triggers |
+| `_maintenance` | Memory consolidation, stale job cleanup, pattern analysis | `MaintenanceManager` — runs every 6h (configurable) |
+| `_calendar` | Morning briefs, upcoming event alerts, meeting prep | `CalendarManager` — hourly checks + daily cron (macOS only) |
+
+**Key properties:**
+- `project.system = true` — flag in schema and DB
+- Go through normal bloop pipeline (Gatekeeper, job queue, memory, skills, reflection)
+- Use `priority: -1` so user work always goes first in the job queue
+- Anti-recursion: triggers skip events from system projects (`_` prefix)
+- `allowCrossProjectAccess: true` — can search memories across all projects
+- CLI: `projects --all` or `projects --system` to view
 
 ## Memory Architecture
 
@@ -298,7 +327,7 @@ beercan jobs                            # Job queue status
 ## Testing
 
 ```bash
-npm test                    # 213 unit tests (~3s)
+npm test                    # 311 unit tests (~3s)
 npm run test:integration    # 4 API integration tests (~2min, needs ANTHROPIC_API_KEY)
 npm run test:all            # Everything
 ```
@@ -377,6 +406,11 @@ Requires `ANTHROPIC_API_KEY` in `.env`. Optional env vars:
 | `BEERCAN_MIN_CRON_INTERVAL` | `5` | Minimum cron interval in minutes |
 | `BEERCAN_HEARTBEAT_INTERVAL` | `30` | Default heartbeat interval in minutes |
 | `BEERCAN_HEARTBEAT_HOURS` | `08:00-22:00` | Default heartbeat active hours |
+| `BEERCAN_MAINTENANCE_ENABLED` | `true` | Enable _maintenance system project in daemon |
+| `BEERCAN_MAINTENANCE_INTERVAL` | `360` | Minutes between maintenance runs |
+| `BEERCAN_CALENDAR_ENABLED` | `false` | Enable _calendar system project (macOS only) |
+| `BEERCAN_CALENDAR_CHECK_INTERVAL` | `60` | Minutes between calendar checks |
+| `BEERCAN_CALENDAR_MORNING_BRIEF_CRON` | `0 8 * * *` | Cron expression for morning calendar brief |
 | `BEERCAN_REFLECTION_ENABLED` | `false` | Enable post-bloop reflection (opt-in) |
 | `BEERCAN_REFLECTION_MODEL` | — | Model for reflection (defaults to gatekeeper model) |
 | `BEERCAN_ENCRYPTION_ENABLED` | `false` | Enable TinFoil field encryption |

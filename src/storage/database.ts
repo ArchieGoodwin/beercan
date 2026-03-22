@@ -105,14 +105,15 @@ export class BeerCanDB {
   createProject(project: Project): void {
     const scope = this.projectScope(project.id);
     this.db.prepare(
-      `INSERT INTO projects (id, name, slug, description, work_dir, context, allowed_tools, token_budget, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO projects (id, name, slug, description, work_dir, system, context, allowed_tools, token_budget, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       project.id,
       project.name,
       project.slug,
       project.description ?? null,
       project.workDir ?? null,
+      project.system ? 1 : 0,
       this.encJSON(project.context, scope),
       JSON.stringify(project.allowedTools),
       JSON.stringify(project.tokenBudget),
@@ -131,8 +132,12 @@ export class BeerCanDB {
     return row ? this.rowToProject(row) : null;
   }
 
-  listProjects(): Project[] {
-    const rows = this.db.prepare("SELECT * FROM projects ORDER BY created_at DESC").all() as any[];
+  listProjects(opts?: { includeSystem?: boolean }): Project[] {
+    const includeSystem = opts?.includeSystem ?? false;
+    const query = includeSystem
+      ? "SELECT * FROM projects ORDER BY created_at DESC"
+      : "SELECT * FROM projects WHERE system = 0 ORDER BY created_at DESC";
+    const rows = this.db.prepare(query).all() as any[];
     return rows.map((row) => this.rowToProject(row));
   }
 
@@ -275,6 +280,7 @@ export class BeerCanDB {
       slug: row.slug,
       description: row.description,
       workDir: row.work_dir ?? undefined,
+      system: !!row.system,
       context: this.decJSON(row.context, scope) as Record<string, unknown>,
       allowedTools: JSON.parse(row.allowed_tools),
       tokenBudget: JSON.parse(row.token_budget),
@@ -1107,5 +1113,9 @@ const MIGRATIONS: Record<string, string> = {
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
     );
+  `,
+
+  "013_system_projects": `
+    ALTER TABLE projects ADD COLUMN system INTEGER NOT NULL DEFAULT 0;
   `,
 };

@@ -5,6 +5,9 @@ import type { EventManager } from "./index.js";
 import { registerStatusApi } from "../api/index.js";
 import { createAnthropicClient } from "../client.js";
 import { HeartbeatManager } from "../core/heartbeat.js";
+import { MaintenanceManager } from "../core/maintenance-manager.js";
+import { CalendarManager } from "../core/calendar-manager.js";
+import { getConfig } from "../config.js";
 
 /**
  * Start the BeerCan daemon: runs scheduler + event system + chat providers.
@@ -15,6 +18,8 @@ export async function startDaemon(
   scheduler: Scheduler,
   eventManager: EventManager
 ): Promise<void> {
+  const config = getConfig();
+
   // Register Status API routes
   const webhookSource = eventManager.getWebhookSource();
   registerStatusApi(webhookSource, engine);
@@ -26,13 +31,32 @@ export async function startDaemon(
   // Start event system
   await eventManager.start();
 
-  // Start heartbeat system
+  // Start heartbeat system (routes through _heartbeat project)
   const heartbeat = new HeartbeatManager(
     engine.getDB(),
-    engine,
+    { enqueueBloop: (opts) => engine.enqueueBloop(opts) },
     eventManager.getEventBus(),
   );
   heartbeat.init();
+
+  // Start maintenance system (routes through _maintenance project)
+  const maintenance = new MaintenanceManager(
+    { enqueueBloop: (opts) => engine.enqueueBloop(opts) },
+  );
+  if (config.maintenanceEnabled) {
+    maintenance.start(config.maintenanceIntervalMinutes);
+  }
+
+  // Start calendar system (routes through _calendar project, macOS only)
+  const calendar = new CalendarManager(
+    { enqueueBloop: (opts) => engine.enqueueBloop(opts) },
+  );
+  if (process.platform === "darwin" && config.calendarEnabled) {
+    calendar.start({
+      checkIntervalMinutes: config.calendarCheckIntervalMinutes,
+      morningBriefCron: config.calendarMorningBriefCron,
+    });
+  }
 
   // Start chat providers (if configured)
   let chatBridge: any = null;
@@ -70,6 +94,12 @@ export async function startDaemon(
   }
 
   console.log(chalk.bold.blue("\n🍺 BeerCan daemon running"));
+  const systems: string[] = [];
+  if (config.maintenanceEnabled) systems.push("maintenance");
+  if (process.platform === "darwin" && config.calendarEnabled) systems.push("calendar");
+  if (systems.length > 0) {
+    console.log(chalk.dim(`  System projects: heartbeat, triggers, ${systems.join(", ")}`));
+  }
   if (chatProviders.length > 0) {
     console.log(chalk.dim(`  Chat providers: ${chatProviders.join(", ")}`));
   }
@@ -79,6 +109,8 @@ export async function startDaemon(
   const shutdown = async () => {
     console.log(chalk.dim("\nShutting down..."));
     if (chatBridge) await chatBridge.stop();
+    calendar.stop();
+    maintenance.stop();
     heartbeat.stop();
     scheduler.stop();
     await eventManager.stop();

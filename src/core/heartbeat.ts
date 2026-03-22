@@ -13,14 +13,19 @@ export interface HeartbeatConfig {
 }
 
 // ── Heartbeat Manager ───────────────────────────────────────
+// Thin timer layer that enqueues heartbeat bloops into the _heartbeat
+// system project via the job queue. The actual work is done by agents
+// going through the normal bloop pipeline (Gatekeeper, skills, memory).
 
 export interface HeartbeatExecutor {
-  runBloop(opts: {
+  enqueueBloop(opts: {
     projectSlug: string;
     goal: string;
-    team?: string;
+    source?: "manual" | "cron" | "event";
+    sourceId?: string;
     extraContext?: string;
-  }): Promise<any>;
+    priority?: number;
+  }): string;
 }
 
 export interface HeartbeatEventPublisher {
@@ -53,10 +58,14 @@ export class HeartbeatManager {
   /** Load all projects and start heartbeats for those with config */
   init(): void {
     this.running = true;
-    const projects = this.db.listProjects();
+    // Include system projects so we can read their heartbeat configs too
+    const projects = this.db.listProjects({ includeSystem: true });
     let started = 0;
 
     for (const project of projects) {
+      // Don't heartbeat system projects themselves
+      if (project.system) continue;
+
       const config = this.getHeartbeatConfig(project);
       if (config?.enabled) {
         this.startProject(project.slug, config);
@@ -93,9 +102,7 @@ export class HeartbeatManager {
     const intervalMs = Math.max(hbConfig.intervalMinutes, globalConfig.heartbeatMinInterval) * 60 * 1000;
 
     const interval = setInterval(() => {
-      this.runHeartbeat(project, hbConfig).catch((err) => {
-        console.error(`[heartbeat] Error for ${slug}: ${err.message}`);
-      });
+      this.runHeartbeat(project, hbConfig);
     }, intervalMs);
 
     this.intervals.set(slug, interval);
@@ -110,8 +117,8 @@ export class HeartbeatManager {
     }
   }
 
-  /** Run a single heartbeat check */
-  async runHeartbeat(project: Project, config: HeartbeatConfig): Promise<void> {
+  /** Enqueue a heartbeat check bloop via the _heartbeat system project */
+  runHeartbeat(project: Project, config: HeartbeatConfig): void {
     // Check active hours
     if (config.activeHours && !this.isInActiveHours(config.activeHours)) {
       return;
@@ -121,52 +128,21 @@ export class HeartbeatManager {
     const goal = this.buildHeartbeatGoal(project, config);
 
     const extraContext = [
+      `Target project: ${project.slug} (${project.name})`,
+      project.workDir ? `Working directory: ${project.workDir}` : "",
       "This is an automated heartbeat check. Be concise.",
       "If you find nothing noteworthy and everything looks fine, respond exactly with: HEARTBEAT_EMPTY",
-      "If you find something worth reporting, provide a brief summary of your findings.",
-    ].join("\n");
+      "If you find something worth reporting, provide a brief summary and send a notification.",
+    ].filter(Boolean).join("\n");
 
-    try {
-      const bloop = await this.executor.runBloop({
-        projectSlug: project.slug,
-        goal,
-        team: "solo",
-        extraContext,
-      });
-
-      // Check if result indicates nothing noteworthy
-      const resultStr = bloop.result
-        ? typeof bloop.result === "string"
-          ? bloop.result
-          : JSON.stringify(bloop.result)
-        : "";
-
-      const isEmpty = resultStr.includes("HEARTBEAT_EMPTY");
-
-      if (isEmpty && config.suppressIfEmpty) {
-        // Silent — don't notify
-        return;
-      }
-
-      // Publish heartbeat result event
-      if (this.publisher) {
-        this.publisher.publish({
-          type: "heartbeat:result",
-          projectSlug: project.slug,
-          source: "heartbeat",
-          data: {
-            bloopId: bloop.id,
-            goal,
-            result: resultStr.slice(0, 2000),
-            empty: isEmpty,
-            tokensUsed: bloop.tokensUsed,
-          },
-          timestamp: new Date().toISOString(),
-        });
-      }
-    } catch (err: any) {
-      console.error(`[heartbeat] Failed for ${project.slug}: ${err.message}`);
-    }
+    this.executor.enqueueBloop({
+      projectSlug: "_heartbeat",
+      goal,
+      source: "cron",
+      sourceId: `heartbeat:${project.slug}`,
+      extraContext,
+      priority: -1, // Lower priority than user work
+    });
   }
 
   /** Get the heartbeat config from a project's context */

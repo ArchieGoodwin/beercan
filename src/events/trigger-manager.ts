@@ -26,11 +26,14 @@ export type Trigger = z.infer<typeof TriggerSchema>;
 // ── Types for the engine reference ──────────────────────────
 
 export interface TriggerBloopExecutor {
-  runBloop(opts: {
+  enqueueBloop(opts: {
     projectSlug: string;
     goal: string;
-    team?: string;
-  }): Promise<any>;
+    source?: "manual" | "cron" | "event";
+    sourceId?: string;
+    extraContext?: string;
+    priority?: number;
+  }): string;
 }
 
 // ── Trigger Manager ─────────────────────────────────────────
@@ -105,8 +108,11 @@ export class TriggerManager {
     return [...this.triggers];
   }
 
-  /** Match an event against triggers and spawn bloops */
+  /** Match an event against triggers and enqueue bloops via _triggers project */
   private async matchAndSpawn(event: BeerCanEvent): Promise<void> {
+    // Don't trigger on events from system projects to avoid loops
+    if (event.projectSlug?.startsWith("_")) return;
+
     for (const trigger of this.triggers) {
       if (!trigger.enabled) continue;
       if (trigger.projectSlug !== event.projectSlug) continue;
@@ -123,7 +129,7 @@ export class TriggerManager {
       const goal = this.interpolateGoal(trigger.goalTemplate, event);
 
       console.log(
-        `[triggers] Matched: ${trigger.id} → spawning bloop for "${goal}"`
+        `[triggers] Matched: ${trigger.id} → enqueuing bloop for "${goal}"`
       );
 
       try {
@@ -137,16 +143,24 @@ export class TriggerManager {
           createdAt: new Date().toISOString(),
         });
 
-        // Spawn the bloop (don't await — fire and forget)
-        this.executor.runBloop({
-          projectSlug: trigger.projectSlug,
+        // Route through _triggers system project via job queue
+        const extraContext = [
+          `Original project: ${trigger.projectSlug}`,
+          `Event type: ${event.type}`,
+          `Trigger ID: ${trigger.id}`,
+          `Event data: ${JSON.stringify(event.data).slice(0, 2000)}`,
+        ].join("\n");
+
+        this.executor.enqueueBloop({
+          projectSlug: "_triggers",
           goal,
-          team: trigger.team,
-        }).catch((err) => {
-          console.error(`[triggers] Bloop failed: ${err.message}`);
+          source: "event",
+          sourceId: trigger.id,
+          extraContext,
+          priority: 0,
         });
       } catch (err: any) {
-        console.error(`[triggers] Failed to spawn bloop: ${err.message}`);
+        console.error(`[triggers] Failed to enqueue bloop: ${err.message}`);
       }
     }
   }

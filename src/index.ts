@@ -35,7 +35,14 @@ import {
 import {
   sendNotificationDefinition, sendNotificationHandler,
 } from "./tools/builtin/notification.js";
+import {
+  calendarListDefinition, calendarListHandler,
+  calendarGetEventsDefinition, calendarGetEventsHandler,
+  calendarCreateEventDefinition, calendarCreateEventHandler,
+  calendarSearchDefinition, calendarSearchHandler,
+} from "./tools/builtin/calendar.js";
 import { CryptoManager } from "./crypto/index.js";
+import { ensureSystemProjects } from "./core/system-projects.js";
 
 // ── BeerCan Engine ───────────────────────────────────────────
 
@@ -145,6 +152,9 @@ export class BeerCanEngine {
     // Load custom tools from plugin directories
     await this.loadPluginTools();
 
+    // Ensure system projects exist
+    ensureSystemProjects(this);
+
     this.logger.info("engine", "Async init complete");
     return this;
   }
@@ -196,6 +206,14 @@ export class BeerCanEngine {
 
     // Notification tool
     this.tools.register(sendNotificationDefinition, sendNotificationHandler);
+
+    // Calendar tools (macOS)
+    if (process.platform === "darwin") {
+      this.tools.register(calendarListDefinition, calendarListHandler);
+      this.tools.register(calendarGetEventsDefinition, calendarGetEventsHandler);
+      this.tools.register(calendarCreateEventDefinition, calendarCreateEventHandler);
+      this.tools.register(calendarSearchDefinition, calendarSearchHandler);
+    }
 
     // Memory tools — handlers access bloop context via runner getter
     const memoryTools = createMemoryTools(
@@ -267,6 +285,7 @@ export class BeerCanEngine {
     workDir?: string;
     context?: Record<string, unknown>;
     allowedTools?: string[];
+    system?: boolean;
   }): Project {
     const now = new Date().toISOString();
     const project: Project = {
@@ -275,6 +294,7 @@ export class BeerCanEngine {
       slug: opts.slug,
       description: opts.description,
       workDir: opts.workDir,
+      system: opts.system ?? false,
       context: opts.context ?? {},
       allowedTools: opts.allowedTools ?? ["*"],
       tokenBudget: { dailyLimit: 100_000, perBloopLimit: 20_000 },
@@ -294,8 +314,8 @@ export class BeerCanEngine {
     return this.db.getProjectBySlug(slug);
   }
 
-  listProjects(): Project[] {
-    return this.db.listProjects();
+  listProjects(opts?: { includeSystem?: boolean }): Project[] {
+    return this.db.listProjects(opts);
   }
 
   // ── Bloop Queries ───────────────────────────────────────────

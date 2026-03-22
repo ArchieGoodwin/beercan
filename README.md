@@ -2,7 +2,7 @@
 
 Autonomous AI agent system — powered by Skippy the Magnificent.
 
-Sandboxed projects, multi-agent pipelines with dynamic team composition, 4-layer hybrid RAG memory, self-spawning agents with cross-project collaboration, heartbeat awareness loops, post-bloop reflection & learning, build-verify-integrate pipelines, conversational chat interface (terminal, Telegram, Slack, WebSocket), REST API with auth, and a magnificently sarcastic AI overlord.
+Sandboxed projects, multi-agent pipelines with dynamic team composition, 4-layer hybrid RAG memory, self-spawning agents with cross-project collaboration, system projects for proactive automation (heartbeat, triggers, maintenance, calendar), post-bloop reflection & learning, build-verify-integrate pipelines, conversational chat interface (terminal, Telegram, Slack, WebSocket), REST API with auth, macOS calendar integration, and a magnificently sarcastic AI overlord.
 
 ## Install
 
@@ -150,7 +150,7 @@ $ beercan run my-project "Add OAuth2 login with Google provider"
 
 The gatekeeper can also invent custom roles with LLM-generated prompts for unusual tasks.
 
-## 32 Built-in Tools
+## 36 Built-in Tools
 
 | Category | Tools |
 |----------|-------|
@@ -162,6 +162,7 @@ The gatekeeper can also invent custom roles with LLM-generated prompts for unusu
 | Scheduling | `create_schedule`, `create_trigger`, `list_schedules`, `list_triggers`, `remove_schedule`, `remove_trigger` |
 | Skills | `create_skill`, `update_skill`, `list_skills`, `update_project_context` |
 | Integration | `register_tool_from_file`, `register_skill_from_bloop`, `verify_and_integrate` |
+| Calendar | `calendar_list`, `calendar_get_events`, `calendar_create_event`, `calendar_search` |
 
 Plus custom tools from `~/.beercan/tools/` and MCP servers.
 
@@ -192,6 +193,41 @@ Per-project periodic awareness loops. Agent wakes up, checks a configurable chec
 beercan heartbeat:configure my-project  # Set checklist, interval, active hours
 beercan daemon                          # Heartbeats run automatically
 ```
+
+## System Projects
+
+Four auto-created system projects make BeerCan proactive:
+
+| Project | What it does |
+|---------|-------------|
+| `_heartbeat` | Periodic health checks for monitored projects |
+| `_triggers` | Processes matched events from the trigger system |
+| `_maintenance` | Memory consolidation, stale job cleanup, cross-project analysis |
+| `_calendar` | Morning briefs, upcoming event alerts, meeting prep (macOS) |
+
+System projects go through the normal bloop pipeline (Gatekeeper, job queue, memory, skills). They're hidden from `beercan projects` by default — use `--all` to see them.
+
+```bash
+beercan projects --all      # Show all projects including system
+beercan projects --system   # Show system projects only
+```
+
+## Calendar Integration (macOS)
+
+Native macOS calendar access via EventKit. Four tools available to agents:
+
+- `calendar_list` — list all calendars
+- `calendar_get_events` — fetch events in a date range
+- `calendar_create_event` — create events
+- `calendar_search` — search events by keyword
+
+Enable the calendar system project for proactive automation:
+
+```bash
+BEERCAN_CALENDAR_ENABLED=true    # Enable in daemon mode
+```
+
+The `_calendar` project runs morning briefs (8 AM daily) and checks for upcoming events hourly.
 
 ### Self-Education
 Optional post-bloop reflection extracts lessons, patterns, and error resolutions into memory. Future bloops automatically receive relevant lessons from past work:
@@ -462,6 +498,11 @@ Set in `.env` file:
 | `BEERCAN_MAX_SPAWN_DEPTH` | `3` | Max spawn chain depth |
 | `BEERCAN_HEARTBEAT_INTERVAL` | `30` | Default heartbeat interval (min) |
 | `BEERCAN_REFLECTION_ENABLED` | `false` | Enable post-bloop reflection |
+| `BEERCAN_MAINTENANCE_ENABLED` | `true` | Enable maintenance system project |
+| `BEERCAN_MAINTENANCE_INTERVAL` | `360` | Minutes between maintenance runs |
+| `BEERCAN_CALENDAR_ENABLED` | `false` | Enable calendar system project (macOS) |
+| `BEERCAN_CALENDAR_CHECK_INTERVAL` | `60` | Minutes between calendar checks |
+| `BEERCAN_CALENDAR_MORNING_BRIEF_CRON` | `0 8 * * *` | Cron for morning calendar brief |
 
 ## Architecture
 

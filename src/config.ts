@@ -48,6 +48,12 @@ const ConfigSchema = z.object({
   // Phase 4: Reflection
   reflectionEnabled: z.boolean().default(false),
   reflectionModel: z.string().optional(),
+  // System projects
+  maintenanceEnabled: z.boolean().default(true),
+  maintenanceIntervalMinutes: z.number().default(360),
+  calendarEnabled: z.boolean().default(false),
+  calendarCheckIntervalMinutes: z.number().default(60),
+  calendarMorningBriefCron: z.string().default("0 8 * * *"),
   // Encryption
   encryptionEnabled: z.boolean().default(false),
   encryptionMode: z.enum(["passphrase", "keyfile"]).default("passphrase"),
@@ -118,6 +124,19 @@ export function getConfig(): Config {
       heartbeatMinInterval: process.env.BEERCAN_HEARTBEAT_MIN_INTERVAL
         ? parseInt(process.env.BEERCAN_HEARTBEAT_MIN_INTERVAL)
         : undefined,
+      maintenanceEnabled: process.env.BEERCAN_MAINTENANCE_ENABLED
+        ? process.env.BEERCAN_MAINTENANCE_ENABLED !== "false"
+        : undefined,
+      maintenanceIntervalMinutes: process.env.BEERCAN_MAINTENANCE_INTERVAL
+        ? parseInt(process.env.BEERCAN_MAINTENANCE_INTERVAL)
+        : undefined,
+      calendarEnabled: process.env.BEERCAN_CALENDAR_ENABLED
+        ? process.env.BEERCAN_CALENDAR_ENABLED === "true"
+        : undefined,
+      calendarCheckIntervalMinutes: process.env.BEERCAN_CALENDAR_CHECK_INTERVAL
+        ? parseInt(process.env.BEERCAN_CALENDAR_CHECK_INTERVAL)
+        : undefined,
+      calendarMorningBriefCron: process.env.BEERCAN_CALENDAR_MORNING_BRIEF_CRON,
       reflectionEnabled: process.env.BEERCAN_REFLECTION_ENABLED
         ? process.env.BEERCAN_REFLECTION_ENABLED === "true"
         : undefined,

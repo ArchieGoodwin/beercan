@@ -421,9 +421,8 @@ export class BloopRunner {
         if (repeatedTools.length > 0) {
           const toolNames = repeatedTools.map(([name, count]) => `${name} (${count}x)`).join(", ");
           toolResults.push({
-            type: "tool_result",
-            tool_use_id: "system",
-            content:
+            type: "text",
+            text:
               `SYSTEM WARNING: The following tools have failed ${REPEATED_FAILURE_THRESHOLD}+ times consecutively: ${toolNames}. ` +
               `You MUST change your approach — do NOT retry the same tool call with the same parameters. Consider:\n` +
               `- Breaking the operation into smaller steps\n` +

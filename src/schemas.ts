@@ -70,6 +70,8 @@ export const ProjectSchema = z.object({
   description: z.string().optional(),
   /** Working directory for agent file/exec operations. If set, agents operate in this folder. */
   workDir: z.string().optional(),
+  /** System projects are auto-created and hidden from default listings. */
+  system: z.boolean().default(false),
   context: z.record(z.unknown()).default({}),
   allowedTools: z.array(z.string()).default(["*"]),
   tokenBudget: z.object({

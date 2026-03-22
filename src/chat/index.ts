@@ -341,7 +341,7 @@ export class ChatBridge {
     // Support partial ID matching (e.g., "a3ebfc4b" instead of full UUID)
     let bloop = this.engine.getBloop(intent.bloopId);
     if (!bloop) {
-      for (const p of this.engine.listProjects()) {
+      for (const p of this.engine.listProjects({ includeSystem: true })) {
         const match = this.engine.getProjectBloops(p.slug).find((b) => b.id.startsWith(intent.bloopId));
         if (match) { bloop = match; break; }
       }

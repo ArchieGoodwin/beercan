@@ -516,17 +516,25 @@ async function main() {
       }
 
       case "projects": {
-        const projects = engine.listProjects();
+        const showAllProjects = args.includes("--all") || args.includes("-a");
+        const showSystemOnly = args.includes("--system");
+        let projects = engine.listProjects({ includeSystem: showAllProjects || showSystemOnly });
+        if (showSystemOnly) projects = projects.filter(p => p.system);
         if (projects.length === 0) {
           console.log(chalk.dim("No projects yet. Run: beercan init <name>"));
           break;
         }
         for (const p of projects) {
+          const sysTag = p.system ? chalk.cyan(" [system]") : "";
           console.log(
             chalk.bold(p.name) +
             chalk.dim(` (${p.slug})`) +
+            sysTag +
             chalk.dim(` — ${p.description ?? "no description"}`)
           );
+        }
+        if (!showAllProjects && !showSystemOnly) {
+          console.log(chalk.dim("\nUse --all to include system projects"));
         }
         break;
       }
@@ -711,7 +719,8 @@ Do NOT rewrite everything — make focused, incremental changes.`,
         const statusId = args[1];
         if (!statusId) {
           // Show overall status
-          const projects = engine.listProjects();
+          const showAllStatus = args.includes("--all") || args.includes("-a");
+          const projects = engine.listProjects({ includeSystem: showAllStatus });
           console.log(chalk.bold("BeerCan Status\n"));
           for (const p of projects) {
             const pBloops = engine.getProjectBloops(p.slug);
