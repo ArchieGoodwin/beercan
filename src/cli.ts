@@ -190,41 +190,51 @@ async function runStop(): Promise<void> {
   const dataDir = process.env.BEERCAN_DATA_DIR ?? path.join(os.default.homedir(), ".beercan");
   const pidPath = path.join(dataDir, "beercan.pid");
 
-  let stopped = false;
+  // Collect all PIDs to kill (from PID file + orphan scan)
+  const pidsToKill = new Set<number>();
 
-  // Try PID file first
   if (fs.existsSync(pidPath)) {
     const pid = parseInt(fs.readFileSync(pidPath, "utf-8").trim(), 10);
-    try {
-      process.kill(pid, "SIGTERM");
-      console.log(chalk.green(`BeerCan stopped (PID ${pid}).`));
-      stopped = true;
-    } catch {
-      // Process doesn't exist
-    }
+    if (!isNaN(pid)) pidsToKill.add(pid);
     fs.unlinkSync(pidPath);
   }
 
-  // Also find any orphaned daemon processes (e.g., from stale PID file mismatch)
+  // Find any orphaned daemon processes
   try {
     const psOutput = execSync("ps -eo pid,command", { encoding: "utf-8" });
-    const orphans = psOutput.split("\n")
-      .filter((line) => line.includes("beercan") && line.includes("_daemon") && !line.includes("grep"))
-      .map((line) => parseInt(line.trim().split(/\s+/)[0], 10))
-      .filter((pid) => pid !== process.pid && !isNaN(pid));
-
-    for (const pid of orphans) {
-      try {
-        process.kill(pid, "SIGTERM");
-        console.log(chalk.green(`Stopped orphaned daemon (PID ${pid}).`));
-        stopped = true;
-      } catch {}
+    for (const line of psOutput.split("\n")) {
+      if (line.includes("beercan") && line.includes("_daemon") && !line.includes("grep")) {
+        const pid = parseInt(line.trim().split(/\s+/)[0], 10);
+        if (pid && pid !== process.pid) pidsToKill.add(pid);
+      }
     }
   } catch {}
 
-  if (!stopped) {
+  if (pidsToKill.size === 0) {
     console.log(chalk.dim("BeerCan is not running."));
+    return;
   }
+
+  // Send SIGTERM to all, then wait for them to die
+  for (const pid of pidsToKill) {
+    try { process.kill(pid, "SIGTERM"); } catch {}
+  }
+
+  // Wait up to 5 seconds for processes to exit
+  for (let i = 0; i < 50; i++) {
+    const alive = [...pidsToKill].filter((pid) => {
+      try { process.kill(pid, 0); return true; } catch { return false; }
+    });
+    if (alive.length === 0) break;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+
+  // Force kill any survivors
+  for (const pid of pidsToKill) {
+    try { process.kill(pid, 0); process.kill(pid, "SIGKILL"); } catch {}
+  }
+
+  console.log(chalk.green(`BeerCan stopped (PID ${[...pidsToKill].join(", ")}).`));
 }
 
 // ── Config Command (no engine needed) ────────────────────────
@@ -1191,8 +1201,12 @@ Do NOT rewrite everything — make focused, incremental changes.`,
           printStartupInfo(child.pid!);
           console.log(chalk.dim(`\n  Stop: beercan stop\n`));
 
-          // Close engine so the parent process can exit (DB handles keep it alive)
+          // Close engine so the parent process can exit (DB handles keep it alive).
+          // Temporarily suppress stdout so "Shutting down..." doesn't show.
+          const origWrite = process.stdout.write;
+          process.stdout.write = (() => true) as any;
           await engine.close();
+          process.stdout.write = origWrite;
           process.exit(0);
         }
         break;
