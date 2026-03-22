@@ -1,8 +1,8 @@
-import Anthropic from "@anthropic-ai/sdk";
 import { getConfig } from "../config.js";
 import type { MemoryManager } from "../memory/index.js";
 import type { BeerCanDB } from "../storage/database.js";
 import type { Bloop, Project } from "../schemas.js";
+import type { LLMProvider, LLMTool, LLMToolUseBlock } from "../providers/types.js";
 
 // ── Reflection Result ───────────────────────────────────────
 
@@ -20,10 +20,10 @@ export interface ReflectionResult {
 
 // ── Structured Output Tool ──────────────────────────────────
 
-const EXTRACT_REFLECTION_TOOL: Anthropic.Tool = {
+const EXTRACT_REFLECTION_TOOL: LLMTool = {
   name: "extract_reflection",
   description: "Extract structured reflection from a completed bloop execution. You MUST call this tool.",
-  input_schema: {
+  inputSchema: {
     type: "object" as const,
     properties: {
       lessons: {
@@ -75,12 +75,12 @@ const EXTRACT_REFLECTION_TOOL: Anthropic.Tool = {
 // ── Reflection Engine ───────────────────────────────────────
 
 export class ReflectionEngine {
-  private client: Anthropic;
+  private provider: LLMProvider;
   private memory: MemoryManager;
   private db: BeerCanDB;
 
-  constructor(client: Anthropic, memory: MemoryManager, db: BeerCanDB) {
-    this.client = client;
+  constructor(provider: LLMProvider, memory: MemoryManager, db: BeerCanDB) {
+    this.provider = provider;
     this.memory = memory;
     this.db = db;
   }
@@ -98,15 +98,15 @@ export class ReflectionEngine {
     // Build compact summary of the bloop
     const summary = this.buildReflectionSummary(bloop);
 
-    const response = await this.client.messages.create({
+    const response = await this.provider.createMessage({
       model,
-      max_tokens: 1024,
+      maxTokens: 1024,
       system: `You are a post-execution reflection agent. Analyze the bloop execution below and extract structured insights.
 Focus on: what worked, what failed, reusable patterns, errors to avoid.
 Be concise and actionable. Skip trivial observations.
 If the execution was straightforward with nothing noteworthy, return empty arrays.`,
       tools: [EXTRACT_REFLECTION_TOOL],
-      tool_choice: { type: "tool" as const, name: "extract_reflection" },
+      toolChoice: { type: "tool", name: "extract_reflection" },
       messages: [
         {
           role: "user",
@@ -116,8 +116,10 @@ If the execution was straightforward with nothing noteworthy, return empty array
     });
 
     // Extract tool call result
-    const toolBlock = response.content.find((b) => b.type === "tool_use");
-    if (!toolBlock || toolBlock.type !== "tool_use") return null;
+    const toolBlock = response.content.find(
+      (b): b is LLMToolUseBlock => b.type === "tool_use"
+    );
+    if (!toolBlock) return null;
 
     const result = toolBlock.input as ReflectionResult;
 
@@ -154,9 +156,9 @@ If the execution was straightforward with nothing noteworthy, return empty array
       `${i + 1}. [${r.entry.memoryType}] ${r.entry.title}\n   ${r.entry.content.slice(0, 300)}\n   ID: ${r.entry.id} | Confidence: ${r.entry.confidence}`
     ).join("\n\n");
 
-    const response = await this.client.messages.create({
+    const response = await this.provider.createMessage({
       model,
-      max_tokens: 1024,
+      maxTokens: 1024,
       system: `You are a memory consolidation agent. Review the reflection memories below and identify:
 1. Duplicates that should be merged (list pairs of IDs)
 2. High-confidence insights that should be strengthened

@@ -1,4 +1,3 @@
-import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import { getConfig } from "../config.js";
 import type { Project } from "../schemas.js";
@@ -6,6 +5,7 @@ import type { AgentRole, BloopTeam } from "./roles.js";
 import { BUILTIN_ROLES } from "./roles.js";
 import { ROLE_TEMPLATES } from "./role-templates.js";
 import type { MemoryManager } from "../memory/index.js";
+import type { LLMProvider, LLMTool, LLMToolUseBlock } from "../providers/types.js";
 
 // ── Gatekeeper Plan Schema ──────────────────────────────────
 
@@ -48,10 +48,10 @@ export interface GatekeeperResult {
 
 // ── Structured Output Tool ──────────────────────────────────
 
-const EXECUTION_PLAN_TOOL: Anthropic.Tool = {
+const EXECUTION_PLAN_TOOL: LLMTool = {
   name: "create_execution_plan",
   description: "Create a structured execution plan for the given goal. You MUST call this tool with your plan.",
-  input_schema: {
+  inputSchema: {
     type: "object" as const,
     properties: {
       reasoning: {
@@ -90,7 +90,7 @@ const EXECUTION_PLAN_TOOL: Anthropic.Tool = {
             },
             model: {
               type: "string",
-              description: "Optional model override. Options: claude-haiku-4-5-20251001 (fast/cheap), claude-sonnet-4-6 (balanced), claude-opus-4-6 (powerful).",
+              description: "Optional model override.",
             },
             maxIterations: {
               type: "number",
@@ -126,11 +126,11 @@ const EXECUTION_PLAN_TOOL: Anthropic.Tool = {
 // ── Gatekeeper Class ────────────────────────────────────────
 
 export class Gatekeeper {
-  private client: Anthropic;
+  private provider: LLMProvider;
   private memory: MemoryManager | null;
 
-  constructor(client: Anthropic, memory?: MemoryManager) {
-    this.client = client;
+  constructor(provider: LLMProvider, memory?: MemoryManager) {
+    this.provider = provider;
     this.memory = memory ?? null;
   }
 
@@ -147,12 +147,12 @@ export class Gatekeeper {
 
     const systemPrompt = this.buildPrompt(options);
 
-    const response = await this.client.messages.create({
+    const response = await this.provider.createMessage({
       model,
-      max_tokens: 2048,
+      maxTokens: 2048,
       system: systemPrompt,
       tools: [EXECUTION_PLAN_TOOL],
-      tool_choice: { type: "tool", name: "create_execution_plan" },
+      toolChoice: { type: "tool", name: "create_execution_plan" },
       messages: [
         {
           role: "user",
@@ -161,10 +161,10 @@ export class Gatekeeper {
       ],
     });
 
-    const tokensUsed = (response.usage?.input_tokens ?? 0) + (response.usage?.output_tokens ?? 0);
+    const tokensUsed = response.usage.inputTokens + response.usage.outputTokens;
 
     const toolBlock = response.content.find(
-      (b): b is Anthropic.ToolUseBlock => b.type === "tool_use" && b.name === "create_execution_plan"
+      (b): b is LLMToolUseBlock => b.type === "tool_use" && b.name === "create_execution_plan"
     );
 
     if (!toolBlock) {
@@ -253,9 +253,9 @@ export class Gatekeeper {
       `You are a Gatekeeper for the BeerCan autonomous agent system. Analyze the goal and compose the optimal team of agents and execution pipeline.`,
       ``,
       `## Available Models`,
-      `- claude-haiku-4-5-20251001 — Fast, cheap ($1/$5 per MTok). Simple tasks, summaries, data processing.`,
-      `- claude-sonnet-4-6 — Balanced ($3/$15 per MTok). Most coding, writing, analysis. 1M context.`,
-      `- claude-opus-4-6 — Most intelligent ($5/$25 per MTok). Complex architecture, agents, nuanced review. 1M context.`,
+      `- ${config.gatekeeperModel} — Fast, cheap. Simple tasks, summaries, data processing.`,
+      `- ${config.defaultModel} — Balanced. Most coding, writing, analysis.`,
+      `- ${config.heavyModel} — Most intelligent. Complex architecture, agents, nuanced review.`,
       ``,
       `## Built-in Roles`,
       ...Object.entries(BUILTIN_ROLES).map(([id, r]) =>

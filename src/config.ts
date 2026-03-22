@@ -18,7 +18,12 @@ loadEnv({ path: path.join(projectRoot, ".env") });
 loadEnv(); // CWD/.env
 
 const ConfigSchema = z.object({
+  // LLM provider
+  llmProvider: z.enum(["anthropic", "openai", "openai-compatible"]).default("anthropic"),
   anthropicApiKey: z.string().default(""),
+  openaiApiKey: z.string().optional(),
+  llmApiKey: z.string().optional(),
+  llmBaseUrl: z.string().optional(),
   dataDir: z.string().default(path.join(os.homedir(), ".beercan")),
   defaultModel: z.string().default("claude-sonnet-4-6"),
   heavyModel: z.string().default("claude-opus-4-6"),
@@ -72,7 +77,11 @@ let _config: Config | null = null;
 export function getConfig(): Config {
   if (!_config) {
     _config = ConfigSchema.parse({
+      llmProvider: process.env.BEERCAN_LLM_PROVIDER,
       anthropicApiKey: process.env.ANTHROPIC_API_KEY,
+      openaiApiKey: process.env.OPENAI_API_KEY,
+      llmApiKey: process.env.BEERCAN_LLM_API_KEY,
+      llmBaseUrl: process.env.BEERCAN_LLM_BASE_URL,
       dataDir: process.env.BEERCAN_DATA_DIR,
       defaultModel: process.env.BEERCAN_DEFAULT_MODEL,
       heavyModel: process.env.BEERCAN_HEAVY_MODEL,

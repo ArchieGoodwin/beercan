@@ -102,39 +102,78 @@ async function runSetup(): Promise<void> {
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 
   try {
-    // Required
     const mask = (v?: string) => v ? v.slice(0, 12) + "..." : "";
-    console.log(chalk.bold("1. Anthropic API Key") + chalk.red(" (required)"));
-    console.log(chalk.dim("   Get one at: https://console.anthropic.com/\n"));
-    const apiKey = (await prompt(rl, chalk.cyan(`   ANTHROPIC_API_KEY [${mask(existing.ANTHROPIC_API_KEY)}]: `))).trim()
-      || existing.ANTHROPIC_API_KEY || "";
 
-    if (!apiKey) {
-      console.log(chalk.red("\n   API key is required. Aborting setup."));
-      return;
+    // Provider selection
+    console.log(chalk.bold("1. LLM Provider"));
+    console.log(chalk.dim("   Options: anthropic, openai, openai-compatible (LM Studio, Ollama, OpenRouter)\n"));
+    const llmProvider = (await prompt(rl, chalk.cyan(`   BEERCAN_LLM_PROVIDER [${existing.BEERCAN_LLM_PROVIDER || "anthropic"}]: `))).trim()
+      || existing.BEERCAN_LLM_PROVIDER || "anthropic";
+
+    // API key(s) based on provider
+    let apiKey = "";
+    let openaiApiKey = "";
+    let llmApiKey = "";
+    let llmBaseUrl = "";
+
+    if (llmProvider === "anthropic") {
+      console.log(chalk.bold("\n2. Anthropic API Key") + chalk.red(" (required)"));
+      console.log(chalk.dim("   Get one at: https://console.anthropic.com/\n"));
+      apiKey = (await prompt(rl, chalk.cyan(`   ANTHROPIC_API_KEY [${mask(existing.ANTHROPIC_API_KEY)}]: `))).trim()
+        || existing.ANTHROPIC_API_KEY || "";
+      if (!apiKey) {
+        console.log(chalk.red("\n   API key is required. Aborting setup."));
+        return;
+      }
+    } else if (llmProvider === "openai") {
+      console.log(chalk.bold("\n2. OpenAI API Key") + chalk.red(" (required)"));
+      console.log(chalk.dim("   Get one at: https://platform.openai.com/\n"));
+      openaiApiKey = (await prompt(rl, chalk.cyan(`   OPENAI_API_KEY [${mask(existing.OPENAI_API_KEY)}]: `))).trim()
+        || existing.OPENAI_API_KEY || "";
+      if (!openaiApiKey) {
+        console.log(chalk.red("\n   API key is required. Aborting setup."));
+        return;
+      }
+    } else {
+      console.log(chalk.bold("\n2. OpenAI-Compatible Endpoint") + chalk.red(" (required)"));
+      console.log(chalk.dim("   e.g., http://localhost:1234/v1 (LM Studio), http://localhost:11434/v1 (Ollama)\n"));
+      llmBaseUrl = (await prompt(rl, chalk.cyan(`   BEERCAN_LLM_BASE_URL [${existing.BEERCAN_LLM_BASE_URL || ""}]: `))).trim()
+        || existing.BEERCAN_LLM_BASE_URL || "";
+      if (!llmBaseUrl) {
+        console.log(chalk.red("\n   Base URL is required for openai-compatible. Aborting setup."));
+        return;
+      }
+      llmApiKey = (await prompt(rl, chalk.cyan(`   BEERCAN_LLM_API_KEY [${mask(existing.BEERCAN_LLM_API_KEY) || "not-needed"}]: `))).trim()
+        || existing.BEERCAN_LLM_API_KEY || "";
     }
 
-    // Optional — Models
-    console.log(chalk.bold("\n2. Models") + chalk.dim(" (press Enter for defaults)"));
-    const defaultModel = (await prompt(rl, chalk.cyan(`   Default model [${existing.BEERCAN_DEFAULT_MODEL || "claude-sonnet-4-6"}]: `))).trim()
+    // Models — show provider-appropriate defaults
+    const modelDefaults = llmProvider === "anthropic"
+      ? { default: "claude-sonnet-4-6", heavy: "claude-opus-4-6" }
+      : llmProvider === "openai"
+      ? { default: "gpt-4o", heavy: "gpt-4o" }
+      : { default: "default", heavy: "default" };
+
+    console.log(chalk.bold("\n3. Models") + chalk.dim(" (press Enter for defaults)"));
+    const defaultModel = (await prompt(rl, chalk.cyan(`   Default model [${existing.BEERCAN_DEFAULT_MODEL || modelDefaults.default}]: `))).trim()
       || existing.BEERCAN_DEFAULT_MODEL || "";
-    const heavyModel = (await prompt(rl, chalk.cyan(`   Heavy model [${existing.BEERCAN_HEAVY_MODEL || "claude-opus-4-6"}]: `))).trim()
+    const heavyModel = (await prompt(rl, chalk.cyan(`   Heavy model [${existing.BEERCAN_HEAVY_MODEL || modelDefaults.heavy}]: `))).trim()
       || existing.BEERCAN_HEAVY_MODEL || "";
 
     // Optional — Cloudflare
-    console.log(chalk.bold("\n3. Cloudflare Browser Rendering") + chalk.dim(" (optional, for web_fetch)"));
+    console.log(chalk.bold("\n4. Cloudflare Browser Rendering") + chalk.dim(" (optional, for web_fetch)"));
     const cfToken = (await prompt(rl, chalk.cyan(`   CLOUDFLARE_API_TOKEN [${mask(existing.CLOUDFLARE_API_TOKEN)}]: `))).trim()
       || existing.CLOUDFLARE_API_TOKEN || "";
     const cfAccount = (await prompt(rl, chalk.cyan(`   CLOUDFLARE_ACCOUNT_ID [${mask(existing.CLOUDFLARE_ACCOUNT_ID)}]: `))).trim()
       || existing.CLOUDFLARE_ACCOUNT_ID || "";
 
     // Optional — Security
-    console.log(chalk.bold("\n4. API Security") + chalk.dim(" (optional, for REST API auth)"));
+    console.log(chalk.bold("\n5. API Security") + chalk.dim(" (optional, for REST API auth)"));
     const beercanApiKey = (await prompt(rl, chalk.cyan(`   BEERCAN_API_KEY [${mask(existing.BEERCAN_API_KEY)}]: `))).trim()
       || existing.BEERCAN_API_KEY || "";
 
     // Optional — Chat
-    console.log(chalk.bold("\n5. Chat Providers") + chalk.dim(" (optional, for Telegram/Slack bots)"));
+    console.log(chalk.bold("\n6. Chat Providers") + chalk.dim(" (optional, for Telegram/Slack bots)"));
     const telegramToken = (await prompt(rl, chalk.cyan(`   BEERCAN_TELEGRAM_TOKEN [${mask(existing.BEERCAN_TELEGRAM_TOKEN)}]: `))).trim()
       || existing.BEERCAN_TELEGRAM_TOKEN || "";
     const slackToken = (await prompt(rl, chalk.cyan(`   BEERCAN_SLACK_TOKEN [${mask(existing.BEERCAN_SLACK_TOKEN)}]: `))).trim()
@@ -143,7 +182,7 @@ async function runSetup(): Promise<void> {
       || existing.BEERCAN_SLACK_SIGNING_SECRET || "";
 
     // Optional — Notifications
-    console.log(chalk.bold("\n6. Notifications") + chalk.dim(" (optional)"));
+    console.log(chalk.bold("\n7. Notifications") + chalk.dim(" (optional)"));
     const webhookUrl = (await prompt(rl, chalk.cyan(`   BEERCAN_NOTIFY_WEBHOOK_URL [${existing.BEERCAN_NOTIFY_WEBHOOK_URL || ""}]: `))).trim()
       || existing.BEERCAN_NOTIFY_WEBHOOK_URL || "";
 
@@ -152,10 +191,16 @@ async function runSetup(): Promise<void> {
       `# BeerCan Configuration`,
       `# Generated by: beercan setup`,
       ``,
-      `ANTHROPIC_API_KEY=${apiKey}`,
+      `# LLM Provider: anthropic, openai, openai-compatible`,
+      `BEERCAN_LLM_PROVIDER=${llmProvider}`,
     ];
 
-    if (defaultModel) lines.push(`BEERCAN_DEFAULT_MODEL=${defaultModel}`);
+    if (apiKey) lines.push(`ANTHROPIC_API_KEY=${apiKey}`);
+    if (openaiApiKey) lines.push(`OPENAI_API_KEY=${openaiApiKey}`);
+    if (llmApiKey) lines.push(`BEERCAN_LLM_API_KEY=${llmApiKey}`);
+    if (llmBaseUrl) lines.push(`BEERCAN_LLM_BASE_URL=${llmBaseUrl}`);
+
+    if (defaultModel) lines.push(``, `# Models`, `BEERCAN_DEFAULT_MODEL=${defaultModel}`);
     if (heavyModel) lines.push(`BEERCAN_HEAVY_MODEL=${heavyModel}`);
     if (cfToken) lines.push(``, `# Cloudflare Browser Rendering`, `CLOUDFLARE_API_TOKEN=${cfToken}`);
     if (cfAccount) lines.push(`CLOUDFLARE_ACCOUNT_ID=${cfAccount}`);
@@ -1045,12 +1090,12 @@ Do NOT rewrite everything — make focused, incremental changes.`,
       case "chat": {
         const chatProject = args[1];
 
-        const { createAnthropicClient } = await import("./client.js");
+        const { createLLMProvider } = await import("./providers/factory.js");
         const { ChatBridge } = await import("./chat/index.js");
         const { TerminalProvider } = await import("./chat/providers/terminal.js");
 
-        const client = await createAnthropicClient();
-        const bridge = new ChatBridge(engine, client);
+        const provider = await createLLMProvider();
+        const bridge = new ChatBridge(engine, provider);
         const terminal = new TerminalProvider();
         bridge.addProvider(terminal);
 
@@ -1459,8 +1504,8 @@ Do NOT rewrite everything — make focused, incremental changes.`,
 
 main().catch((err) => {
   const msg = String(err?.message ?? err);
-  if (msg.includes("anthropicApiKey") || msg.includes("ANTHROPIC_API_KEY") || msg.includes("Required")) {
-    console.error(chalk.red("\nMissing API key.") + " Run " + chalk.cyan("beercan setup") + " to configure BeerCan.\n");
+  if (msg.includes("API_KEY") || msg.includes("api key") || msg.includes("Api key") || msg.includes("not set") || msg.includes("Required")) {
+    console.error(chalk.red("\nMissing API key or provider config.") + " Run " + chalk.cyan("beercan setup") + " to configure BeerCan.\n");
   } else {
     console.error(chalk.red("Fatal:"), msg);
   }

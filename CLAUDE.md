@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-Beercan is an autonomous agent system with sandboxed projects and multi-agent pipelines, ruled by Skippy the Magnificent (an Elder AI in the form of a beer can, from Craig Alanson's Expeditionary Force series). It orchestrates Claude-powered agents through configurable team pipelines (solo, code_review, managed, full_team) or dynamically via a Gatekeeper, and provides a conversational interface (terminal, Telegram, Slack, WebSocket) for natural language interaction.
+Beercan is an autonomous agent system with sandboxed projects and multi-agent pipelines, ruled by Skippy the Magnificent (an Elder AI in the form of a beer can, from Craig Alanson's Expeditionary Force series). It orchestrates LLM-powered agents (Anthropic, OpenAI, or any OpenAI-compatible endpoint like LM Studio/Ollama/OpenRouter) through configurable team pipelines (solo, code_review, managed, full_team) or dynamically via a Gatekeeper, and provides a conversational interface (terminal, Telegram, Slack, WebSocket) for natural language interaction.
 
 ## Commands
 
@@ -70,6 +70,10 @@ CLI commands via `npm run beercan --` (or `beercan` if installed globally):
 - `src/core/maintenance-manager.ts` — `MaintenanceManager`, periodic memory/job cleanup via `_maintenance` project
 - `src/core/calendar-manager.ts` — `CalendarManager`, schedule-aware automation via `_calendar` project
 - `src/core/roles.ts` — 5 built-in agent role definitions, team presets, pipeline configs
+- `src/providers/types.ts` — `LLMProvider` interface, `LLMRequest`, `LLMResponse`, normalized message/tool types
+- `src/providers/anthropic.ts` — `AnthropicProvider` wraps `@anthropic-ai/sdk`
+- `src/providers/openai.ts` — `OpenAIProvider` wraps `openai` SDK (also covers LM Studio, Ollama, OpenRouter)
+- `src/providers/factory.ts` — `createLLMProvider()` factory, reads config to pick backend
 - `src/schemas.ts` — core domain types as Zod schemas (Bloop, Project with workDir/system flag, ToolCallRecord)
 - `src/config.ts` — environment config with Zod validation
 - `src/cli.ts` — CLI with run/history/result/status/jobs commands
@@ -111,12 +115,12 @@ beercan init my-api --work-dir /Users/me/projects/my-api
 
 ## Gatekeeper
 
-Pre-flight analysis step that dynamically composes the right team for any goal. Single fast LLM call (Haiku by default) using Anthropic's `tool_choice` for structured JSON output.
+Pre-flight analysis step that dynamically composes the right team for any goal. Single fast LLM call using forced tool choice for structured JSON output.
 
 - **When:** `team: "auto"` (default) or `team: undefined`. Skipped for preset teams.
 - **What it decides:** task complexity, roles, pipeline order, rejection flows, model per role, tools per role, max cycles.
 - **Role sources:** 5 built-in + 11 templates + fully custom roles with LLM-generated prompts.
-- **Config:** `BEERCAN_GATEKEEPER_MODEL` env var (default: `claude-haiku-4-5-20251001`).
+- **Config:** `BEERCAN_GATEKEEPER_MODEL` env var (default: `claude-haiku-4-5-20251001`). Model names are provider-specific.
 
 ## Status API
 
@@ -177,7 +181,7 @@ Provider-agnostic chat layer for interacting with BeerCan via natural language.
 
 **Slash commands:** `/run <project> <goal>`, `/status`, `/projects`, `/history [project]`, `/result <id>`, `/cancel <id>`, `/help`
 
-**Natural language:** Falls back to Haiku LLM call for intent classification — "analyze the test coverage" → run_bloop.
+**Natural language:** Falls back to gatekeeper-model LLM call for intent classification — "analyze the test coverage" → run_bloop.
 
 **Key files:**
 - `src/chat/index.ts` — `ChatBridge`, main orchestrator
@@ -346,6 +350,7 @@ npm run test:all            # Everything
 - **Strict TypeScript** — `strict: true`, target ES2022.
 - **Zod for validation** — domain types as Zod schemas, inferred with `z.infer<>`.
 - **Tool pattern** — `ToolDefinition` + `ToolHandler`. Context-aware tools (memory, spawning, scheduling, skills, integration) use factory pattern with closures over `getBloopContext()`.
+- **LLM abstraction** — `LLMProvider` interface in `src/providers/types.ts`. All LLM calls go through `provider.createMessage()`. Provider-specific format conversion (tool schemas, message roles, tool results) handled in `AnthropicProvider` and `OpenAIProvider`.
 - **Test framework** — vitest.
 
 ## TinFoil Encryption
@@ -379,12 +384,17 @@ Master Key (scrypt from passphrase, or keyfile)
 
 ## Environment
 
-Requires `ANTHROPIC_API_KEY` in `.env`. Optional env vars:
+Requires `ANTHROPIC_API_KEY` in `.env` (or equivalent for chosen provider). Optional env vars:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
+| `BEERCAN_LLM_PROVIDER` | `anthropic` | LLM backend: `anthropic`, `openai`, `openai-compatible` |
+| `ANTHROPIC_API_KEY` | — | API key for Anthropic provider |
+| `OPENAI_API_KEY` | — | API key for OpenAI provider |
+| `BEERCAN_LLM_API_KEY` | — | Generic API key for openai-compatible provider |
+| `BEERCAN_LLM_BASE_URL` | — | Custom endpoint URL (LM Studio, Ollama, OpenRouter) |
 | `BEERCAN_DATA_DIR` | `~/.beercan` | Data directory |
-| `BEERCAN_DEFAULT_MODEL` | `claude-sonnet-4-6` | Default agent model |
+| `BEERCAN_DEFAULT_MODEL` | `claude-sonnet-4-6` | Default agent model (provider-specific name) |
 | `BEERCAN_HEAVY_MODEL` | `claude-opus-4-6` | Heavy model for complex roles |
 | `BEERCAN_GATEKEEPER_MODEL` | `claude-haiku-4-5-20251001` | Gatekeeper analysis model |
 | `BEERCAN_MAX_CONCURRENT` | `2` | Max simultaneous bloop executions |

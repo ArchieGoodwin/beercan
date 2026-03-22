@@ -1,8 +1,8 @@
-import Anthropic from "@anthropic-ai/sdk";
 import { getConfig } from "../config.js";
 import type { BeerCanEngine } from "../index.js";
 import type { ChatIntent } from "./types.js";
 import { SKIPPY_INTENT_PROMPT } from "./skippy.js";
+import type { LLMProvider, LLMTool, LLMToolUseBlock } from "../providers/types.js";
 
 // ── Intent Parser ──────────────────────────────────────────────
 // Two-tier: slash commands (fast, no LLM) → natural language (Haiku).
@@ -13,7 +13,7 @@ import { SKIPPY_INTENT_PROMPT } from "./skippy.js";
  * Tier 2 uses an LLM call for natural language understanding.
  */
 export async function parseIntent(
-  client: Anthropic,
+  provider: LLMProvider,
   text: string,
   ctx: { lastProjectSlug?: string; history?: Array<{ role: string; text: string }> },
   engine: BeerCanEngine,
@@ -38,7 +38,7 @@ export async function parseIntent(
 
   // ── Tier 2: Natural Language (LLM) ─────────────────────────
 
-  return classifyWithLLM(client, trimmed, ctx, engine);
+  return classifyWithLLM(provider, trimmed, ctx, engine);
 }
 
 // ── Tier 0: # and @ Shortcuts ────────────────────────────────
@@ -244,10 +244,10 @@ function parseSlashCommand(text: string): ChatIntent | null {
 
 // ── Tier 2: LLM-based Intent Classification ─────────────────
 
-const CLASSIFY_INTENT_TOOL: Anthropic.Tool = {
+const CLASSIFY_INTENT_TOOL: LLMTool = {
   name: "classify_intent",
   description: "Classify the user's chat message into a structured intent for the BeerCan agent system.",
-  input_schema: {
+  inputSchema: {
     type: "object" as const,
     properties: {
       intent_type: {
@@ -314,7 +314,7 @@ const CLASSIFY_INTENT_TOOL: Anthropic.Tool = {
 };
 
 async function classifyWithLLM(
-  client: Anthropic,
+  provider: LLMProvider,
   text: string,
   ctx: { lastProjectSlug?: string; history?: Array<{ role: string; text: string }> },
   engine: BeerCanEngine,
@@ -364,12 +364,12 @@ async function classifyWithLLM(
   ].join("\n");
 
   try {
-    const response = await client.messages.create({
+    const response = await provider.createMessage({
       model,
-      max_tokens: 512,
+      maxTokens: 512,
       system: systemPrompt,
       tools: [CLASSIFY_INTENT_TOOL],
-      tool_choice: { type: "tool", name: "classify_intent" },
+      toolChoice: { type: "tool", name: "classify_intent" },
       messages: [
         // Include recent conversation for multi-turn context
         ...recentHistory.slice(-6).map((h) => ({
@@ -381,7 +381,7 @@ async function classifyWithLLM(
     });
 
     const toolBlock = response.content.find(
-      (b): b is Anthropic.ToolUseBlock => b.type === "tool_use" && b.name === "classify_intent",
+      (b): b is LLMToolUseBlock => b.type === "tool_use" && b.name === "classify_intent",
     );
 
     if (!toolBlock) {

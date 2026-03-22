@@ -1,7 +1,5 @@
-import Anthropic from "@anthropic-ai/sdk";
 import { v4 as uuid } from "uuid";
 import { getConfig } from "../config.js";
-import { createAnthropicClient } from "../client.js";
 import { BeerCanDB } from "../storage/database.js";
 import { ToolRegistry } from "../tools/registry.js";
 import { MemoryManager } from "../memory/index.js";
@@ -9,6 +7,10 @@ import type { Bloop, BloopMessage, ToolCallRecord, Project } from "../schemas.js
 import type { AgentRole, BloopTeam } from "./roles.js";
 import { BUILTIN_ROLES, PRESET_TEAMS } from "./roles.js";
 import { ReflectionEngine, shouldReflect } from "./reflection.js";
+import type {
+  LLMProvider, LLMMessage, LLMContentBlock, LLMResponseBlock,
+  LLMToolResultBlock,
+} from "../providers/types.js";
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -38,7 +40,7 @@ export type BloopEvent =
 // ── Bloop Runner ──────────────────────────────────────────────
 
 export class BloopRunner {
-  private client: Anthropic;
+  private provider: LLMProvider;
   private db: BeerCanDB;
   private tools: ToolRegistry;
   private memory: MemoryManager;
@@ -46,8 +48,8 @@ export class BloopRunner {
   private roles: Map<string, AgentRole>;
   private currentBloopCtx: { bloopId: string; projectId: string; projectSlug: string } | null = null;
 
-  constructor(db: BeerCanDB, tools: ToolRegistry, client: Anthropic, memory: MemoryManager, reflectionEngine?: ReflectionEngine) {
-    this.client = client;
+  constructor(db: BeerCanDB, tools: ToolRegistry, provider: LLMProvider, memory: MemoryManager, reflectionEngine?: ReflectionEngine) {
+    this.provider = provider;
     this.db = db;
     this.tools = tools;
     this.memory = memory;
@@ -319,7 +321,7 @@ export class BloopRunner {
 
     // Resolve allowed tools for this role within this project
     const roleTools = this.resolveTools(role.allowedTools, project.allowedTools);
-    const anthropicTools = this.tools.toAnthropicTools(roleTools);
+    const llmTools = this.tools.toLLMTools(roleTools);
     const toolNames = roleTools.includes("*") ? this.tools.listToolNames() : roleTools;
 
     // Build system prompt (with tool awareness)
@@ -333,7 +335,7 @@ export class BloopRunner {
     );
 
     // Agent conversation (local to this phase execution)
-    const messages: Anthropic.MessageParam[] = [
+    const messages: LLMMessage[] = [
       {
         role: "user",
         content: pipelineContext
@@ -353,21 +355,21 @@ export class BloopRunner {
       iterations++;
       bloop.iterations++;
 
-      const response = await this.client.messages.create({
+      const response = await this.provider.createMessage({
         model,
-        max_tokens: 16384,
+        maxTokens: 16384,
         system: systemPrompt,
-        tools: anthropicTools.length > 0 ? anthropicTools : undefined,
         messages,
+        tools: llmTools.length > 0 ? llmTools : undefined,
       }, { signal });
 
       // Track token usage
-      bloop.tokensUsed += (response.usage?.input_tokens ?? 0) + (response.usage?.output_tokens ?? 0);
+      bloop.tokensUsed += response.usage.inputTokens + response.usage.outputTokens;
 
       // Process response blocks
       let hasToolUse = false;
-      const assistantContent: Anthropic.ContentBlock[] = response.content;
-      const toolResults: Anthropic.ToolResultBlockParam[] = [];
+      const assistantContent: LLMResponseBlock[] = response.content;
+      const toolResults: LLMToolResultBlock[] = [];
 
       for (const block of assistantContent) {
         if (block.type === "text") {
@@ -433,7 +435,7 @@ export class BloopRunner {
 
           toolResults.push({
             type: "tool_result",
-            tool_use_id: block.id,
+            toolUseId: block.id,
             content: resultText,
           });
         }
@@ -441,19 +443,17 @@ export class BloopRunner {
 
       // If there were tool calls, feed results back
       if (hasToolUse) {
-        messages.push({ role: "assistant", content: assistantContent as any });
+        messages.push({ role: "assistant", content: assistantContent as LLMContentBlock[] });
 
         // Check for repeated failures and inject course-correction guidance
-        // Append to the last tool_result's content since the API doesn't allow
-        // mixing tool_result and text blocks in the same content array.
         const repeatedTools = [...consecutiveFailures.entries()]
           .filter(([, count]) => count >= REPEATED_FAILURE_THRESHOLD);
 
         if (repeatedTools.length > 0 && toolResults.length > 0) {
-          const toolNames = repeatedTools.map(([name, count]) => `${name} (${count}x)`).join(", ");
-          const lastResult = toolResults[toolResults.length - 1] as any;
-          lastResult.content += `\n\n` +
-            `SYSTEM WARNING: The following tools have failed ${REPEATED_FAILURE_THRESHOLD}+ times consecutively: ${toolNames}. ` +
+          const toolNamesList = repeatedTools.map(([name, count]) => `${name} (${count}x)`).join(", ");
+          const lastResult = toolResults[toolResults.length - 1];
+          (lastResult as any).content += `\n\n` +
+            `SYSTEM WARNING: The following tools have failed ${REPEATED_FAILURE_THRESHOLD}+ times consecutively: ${toolNamesList}. ` +
             `You MUST change your approach — do NOT retry the same tool call with the same parameters. Consider:\n` +
             `- Breaking the operation into smaller steps\n` +
             `- Using a different tool (e.g., exec_command with echo/printf instead of write_file)\n` +
@@ -462,7 +462,7 @@ export class BloopRunner {
             `If you cannot accomplish the goal differently, explain what went wrong and stop.`;
         }
 
-        messages.push({ role: "user", content: toolResults });
+        messages.push({ role: "user", content: toolResults as LLMContentBlock[] });
         // Save progress
         bloop.updatedAt = new Date().toISOString();
         this.db.updateBloop(bloop);
@@ -470,7 +470,7 @@ export class BloopRunner {
       }
 
       // No tool calls → agent is done with this phase
-      if (response.stop_reason === "end_turn") {
+      if (response.stopReason === "end_turn") {
         break;
       }
     }

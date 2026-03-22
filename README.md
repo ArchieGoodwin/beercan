@@ -10,7 +10,7 @@ Sandboxed projects, multi-agent pipelines with dynamic team composition, 4-layer
 npm install -g beercan
 ```
 
-Requires Node.js 18+ and an [Anthropic API key](https://console.anthropic.com/).
+Requires Node.js 18+ and an LLM provider API key ([Anthropic](https://console.anthropic.com/), [OpenAI](https://platform.openai.com/), or any OpenAI-compatible endpoint like LM Studio, Ollama, OpenRouter).
 
 ## Setup
 
@@ -18,7 +18,7 @@ Requires Node.js 18+ and an [Anthropic API key](https://console.anthropic.com/).
 beercan setup
 ```
 
-Interactive wizard that configures your API keys, models, and optional integrations (Cloudflare, Telegram, Slack). Creates `~/.beercan/.env`.
+Interactive wizard that configures your LLM provider, API keys, models, and optional integrations (Cloudflare, Telegram, Slack). Creates `~/.beercan/.env`.
 
 ## Config
 
@@ -33,8 +33,16 @@ beercan config list                 # Show all config
 ## Quick Start
 
 ```bash
-# Set up your API key
+# Set up (Anthropic is the default provider)
 echo "ANTHROPIC_API_KEY=sk-ant-..." > .env
+
+# Or use OpenAI
+# echo "BEERCAN_LLM_PROVIDER=openai" > .env
+# echo "OPENAI_API_KEY=sk-..." >> .env
+
+# Or use a local model (LM Studio, Ollama, etc.)
+# echo "BEERCAN_LLM_PROVIDER=openai-compatible" > .env
+# echo "BEERCAN_LLM_BASE_URL=http://localhost:1234/v1" >> .env
 
 # Create a project scoped to a directory
 beercan init my-project --work-dir ~/projects/my-project
@@ -493,11 +501,15 @@ Set in `.env` file:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `ANTHROPIC_API_KEY` | (required) | Claude API key |
+| `BEERCAN_LLM_PROVIDER` | `anthropic` | LLM backend: `anthropic`, `openai`, `openai-compatible` |
+| `ANTHROPIC_API_KEY` | — | API key for Anthropic provider |
+| `OPENAI_API_KEY` | — | API key for OpenAI provider |
+| `BEERCAN_LLM_API_KEY` | — | Generic API key for openai-compatible |
+| `BEERCAN_LLM_BASE_URL` | — | Custom endpoint (LM Studio, Ollama, OpenRouter) |
 | `BEERCAN_DATA_DIR` | `~/.beercan` | Data directory |
-| `BEERCAN_DEFAULT_MODEL` | `claude-sonnet-4-6` | Default agent model |
-| `BEERCAN_HEAVY_MODEL` | `claude-opus-4-6` | Heavy model |
-| `BEERCAN_GATEKEEPER_MODEL` | `claude-haiku-4-5-20251001` | Gatekeeper model |
+| `BEERCAN_DEFAULT_MODEL` | `claude-sonnet-4-6` | Default agent model (provider-specific) |
+| `BEERCAN_HEAVY_MODEL` | `claude-opus-4-6` | Heavy model (provider-specific) |
+| `BEERCAN_GATEKEEPER_MODEL` | `claude-haiku-4-5-20251001` | Gatekeeper model (provider-specific) |
 | `BEERCAN_MAX_CONCURRENT` | `2` | Max simultaneous bloops |
 | `BEERCAN_BLOOP_TIMEOUT_MS` | `600000` | Per-bloop timeout (10 min) |
 | `CLOUDFLARE_API_TOKEN` | — | For web_fetch (Browser Rendering) |
@@ -511,9 +523,9 @@ Set in `.env` file:
 | `BEERCAN_MAX_CHILDREN_PER_BLOOP` | `5` | Max child bloops per parent |
 | `BEERCAN_MAX_SPAWN_DEPTH` | `3` | Max spawn chain depth |
 | `BEERCAN_HEARTBEAT_INTERVAL` | `30` | Default heartbeat interval (min) |
-| `BEERCAN_REFLECTION_ENABLED` | `false` | Enable post-bloop reflection |
+| `BEERCAN_REFLECTION_ENABLED` | `true` | Enable post-bloop reflection |
 | `BEERCAN_MAINTENANCE_ENABLED` | `true` | Enable maintenance system project |
-| `BEERCAN_MAINTENANCE_INTERVAL` | `360` | Minutes between maintenance runs |
+| `BEERCAN_MAINTENANCE_INTERVAL` | `10080` | Minutes between maintenance runs (7 days) |
 | `BEERCAN_CALENDAR_ENABLED` | `false` | Enable calendar system project (macOS) |
 | `BEERCAN_CALENDAR_CHECK_INTERVAL` | `60` | Minutes between calendar checks |
 | `BEERCAN_CALENDAR_MORNING_BRIEF_CRON` | `0 8 * * *` | Cron for morning calendar brief |

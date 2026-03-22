@@ -1,4 +1,5 @@
 import type { ToolDefinition } from "../schemas.js";
+import type { LLMTool } from "../providers/types.js";
 
 // ── Tool Handler Type ────────────────────────────────────────
 
@@ -45,13 +46,13 @@ export class ToolRegistry {
   }
 
   /**
-   * Convert definitions to Anthropic API tool format.
+   * Convert definitions to provider-agnostic LLMTool format.
    */
-  toAnthropicTools(allowedTools: string[] = ["*"]): AnthropicTool[] {
+  toLLMTools(allowedTools: string[] = ["*"]): LLMTool[] {
     return this.getDefinitions(allowedTools).map((d) => ({
       name: d.name,
       description: d.description,
-      input_schema: d.inputSchema as any,
+      inputSchema: d.inputSchema as Record<string, unknown>,
     }));
   }
 
@@ -70,16 +71,4 @@ export class ToolRegistry {
       return { error: err.message ?? String(err) };
     }
   }
-}
-
-// ── Anthropic Tool Type (subset) ─────────────────────────────
-
-interface AnthropicTool {
-  name: string;
-  description: string;
-  input_schema: {
-    type: "object";
-    properties: Record<string, unknown>;
-    required?: string[];
-  };
 }

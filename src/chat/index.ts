@@ -1,4 +1,3 @@
-import Anthropic from "@anthropic-ai/sdk";
 import chalk from "chalk";
 import { readFile } from "node:fs/promises";
 import { resolve, isAbsolute } from "node:path";
@@ -15,6 +14,7 @@ import {
 } from "./formatter.js";
 import { pick } from "./skippy-phrases.js";
 import type { BloopEvent } from "../core/runner.js";
+import type { LLMProvider } from "../providers/types.js";
 
 // ── Channel Context ────────────────────────────────────────────
 
@@ -38,15 +38,15 @@ const MAX_HISTORY = 20; // Keep last 20 messages per channel
 
 export class ChatBridge {
   private engine: BeerCanEngine;
-  private client: Anthropic;
+  private provider: LLMProvider;
   private providers: ChatProvider[] = [];
   private channelContexts = new Map<string, ChannelContext>();
   private chatInitiatedBloops = new Set<string>();
   private startTime = Date.now();
 
-  constructor(engine: BeerCanEngine, client: Anthropic) {
+  constructor(engine: BeerCanEngine, provider: LLMProvider) {
     this.engine = engine;
-    this.client = client;
+    this.provider = provider;
   }
 
   /** Register a chat provider and wire up message handling. */
@@ -160,7 +160,7 @@ export class ChatBridge {
     let intent: ChatIntent;
 
     try {
-      intent = await parseIntent(this.client, msg.text, ctx, this.engine);
+      intent = await parseIntent(this.provider, msg.text, ctx, this.engine);
     } catch (err: any) {
       await provider.sendMessage(
         msg.channelId,

@@ -5,7 +5,7 @@ import { getConfig, getProjectDir } from "./config.js";
 import { BeerCanDB } from "./storage/database.js";
 import { ToolRegistry } from "./tools/registry.js";
 import { BloopRunner, type RunBloopOptions } from "./core/runner.js";
-import { createAnthropicClient } from "./client.js";
+import { createLLMProvider } from "./providers/factory.js";
 import { PRESET_TEAMS, BUILTIN_ROLES, type AgentRole, type BloopTeam } from "./core/roles.js";
 import { Gatekeeper, type GatekeeperResult } from "./core/gatekeeper.js";
 import { JobQueue } from "./core/job-queue.js";
@@ -131,10 +131,10 @@ export class BeerCanEngine {
 
   /** Must be called before using the engine — initializes async resources */
   async init(): Promise<this> {
-    const client = await createAnthropicClient();
-    const reflectionEngine = new ReflectionEngine(client, this.memoryManager, this.db);
-    this.runner = new BloopRunner(this.db, this.tools, client, this.memoryManager, reflectionEngine);
-    this.gatekeeper = new Gatekeeper(client, this.memoryManager);
+    const provider = await createLLMProvider();
+    const reflectionEngine = new ReflectionEngine(provider, this.memoryManager, this.db);
+    this.runner = new BloopRunner(this.db, this.tools, provider, this.memoryManager, reflectionEngine);
+    this.gatekeeper = new Gatekeeper(provider, this.memoryManager);
     this.jobQueue = new JobQueue(this.db, this.config.maxConcurrent);
     this.jobQueue.setExecutor(async (opts) => {
       const bloop = await this.runBloop({

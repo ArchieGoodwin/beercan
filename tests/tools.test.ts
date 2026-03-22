@@ -40,13 +40,13 @@ describe("ToolRegistry", () => {
     expect(defs.map((d) => d.name).sort()).toEqual(["exec_command", "read_file"]);
   });
 
-  it("converts to Anthropic tool format", () => {
-    const tools = registry.toAnthropicTools(["read_file"]);
+  it("converts to LLM tool format", () => {
+    const tools = registry.toLLMTools(["read_file"]);
     expect(tools).toHaveLength(1);
     expect(tools[0]).toHaveProperty("name", "read_file");
     expect(tools[0]).toHaveProperty("description");
-    expect(tools[0]).toHaveProperty("input_schema");
-    expect(tools[0].input_schema.type).toBe("object");
+    expect(tools[0]).toHaveProperty("inputSchema");
+    expect((tools[0].inputSchema as any).type).toBe("object");
   });
 
   it("executes tools and returns output", async () => {

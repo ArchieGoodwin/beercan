@@ -3,7 +3,7 @@ import type { BeerCanEngine } from "../index.js";
 import type { Scheduler } from "../scheduler/scheduler.js";
 import type { EventManager } from "./index.js";
 import { registerStatusApi } from "../api/index.js";
-import { createAnthropicClient } from "../client.js";
+import { createLLMProvider } from "../providers/factory.js";
 import { HeartbeatManager } from "../core/heartbeat.js";
 import { MaintenanceManager } from "../core/maintenance-manager.js";
 import { CalendarManager } from "../core/calendar-manager.js";
@@ -65,8 +65,8 @@ export async function startDaemon(
   if (process.env.BEERCAN_TELEGRAM_TOKEN || process.env.BEERCAN_SLACK_TOKEN) {
     try {
       const { ChatBridge } = await import("../chat/index.js");
-      const client = await createAnthropicClient();
-      chatBridge = new ChatBridge(engine, client);
+      const provider = await createLLMProvider();
+      chatBridge = new ChatBridge(engine, provider);
 
       if (process.env.BEERCAN_TELEGRAM_TOKEN) {
         const { TelegramProvider } = await import("../chat/providers/telegram.js");
