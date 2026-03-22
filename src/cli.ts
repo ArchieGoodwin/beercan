@@ -1166,22 +1166,35 @@ Do NOT rewrite everything — make focused, incremental changes.`,
 
           // Tail the log file in real-time
           const logFile = gc().logFile ?? path.join(gc().dataDir, "beercan.log");
+          const { spawn: spawnTail } = await import("child_process");
           let logTail: any = null;
-          if (fs.existsSync(logFile)) {
-            const { spawn } = await import("child_process");
-            logTail = spawn("tail", ["-f", logFile], { stdio: ["ignore", "inherit", "inherit"] });
-          } else {
+
+          const startTail = () => {
+            if (logTail) return;
+            if (fs.existsSync(logFile)) {
+              logTail = spawnTail("tail", ["-f", logFile], { stdio: ["ignore", "inherit", "inherit"] });
+            }
+          };
+          startTail();
+          if (!logTail) {
             // Watch for log file creation then start tailing
             const logDir = path.dirname(logFile);
             const watcher = fs.watch(logDir, (_, filename) => {
-              if (filename === path.basename(logFile) && fs.existsSync(logFile)) {
+              if (filename === path.basename(logFile)) {
                 watcher.close();
-                import("child_process").then(({ spawn }) => {
-                  logTail = spawn("tail", ["-f", logFile], { stdio: ["ignore", "inherit", "inherit"] });
-                });
+                startTail();
               }
             });
           }
+
+          // Ensure Ctrl+C kills everything cleanly
+          const forceExit = () => {
+            if (logTail) logTail.kill();
+            cleanPid();
+            process.exit(0);
+          };
+          process.on("SIGINT", forceExit);
+          process.on("SIGTERM", forceExit);
 
           const scheduler = engine.getScheduler();
           const eventManager = engine.getEventManager();
