@@ -415,22 +415,22 @@ export class BloopRunner {
         messages.push({ role: "assistant", content: assistantContent as any });
 
         // Check for repeated failures and inject course-correction guidance
+        // Append to the last tool_result's content since the API doesn't allow
+        // mixing tool_result and text blocks in the same content array.
         const repeatedTools = [...consecutiveFailures.entries()]
           .filter(([, count]) => count >= REPEATED_FAILURE_THRESHOLD);
 
-        if (repeatedTools.length > 0) {
+        if (repeatedTools.length > 0 && toolResults.length > 0) {
           const toolNames = repeatedTools.map(([name, count]) => `${name} (${count}x)`).join(", ");
-          toolResults.push({
-            type: "text",
-            text:
-              `SYSTEM WARNING: The following tools have failed ${REPEATED_FAILURE_THRESHOLD}+ times consecutively: ${toolNames}. ` +
-              `You MUST change your approach — do NOT retry the same tool call with the same parameters. Consider:\n` +
-              `- Breaking the operation into smaller steps\n` +
-              `- Using a different tool (e.g., exec_command with echo/printf instead of write_file)\n` +
-              `- Simplifying or reducing the size of the data you are passing\n` +
-              `- Completing the goal with what you already have rather than retrying\n` +
-              `If you cannot accomplish the goal differently, explain what went wrong and stop.`,
-          } as any);
+          const lastResult = toolResults[toolResults.length - 1] as any;
+          lastResult.content += `\n\n` +
+            `SYSTEM WARNING: The following tools have failed ${REPEATED_FAILURE_THRESHOLD}+ times consecutively: ${toolNames}. ` +
+            `You MUST change your approach — do NOT retry the same tool call with the same parameters. Consider:\n` +
+            `- Breaking the operation into smaller steps\n` +
+            `- Using a different tool (e.g., exec_command with echo/printf instead of write_file)\n` +
+            `- Simplifying or reducing the size of the data you are passing\n` +
+            `- Completing the goal with what you already have rather than retrying\n` +
+            `If you cannot accomplish the goal differently, explain what went wrong and stop.`;
         }
 
         messages.push({ role: "user", content: toolResults });
