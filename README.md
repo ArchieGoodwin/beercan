@@ -341,13 +341,25 @@ beercan jobs              # View queue status
 Run as an always-on service with cron scheduling and event triggers:
 
 ```bash
-beercan daemon
+beercan start             # Background (default)
 ```
 
 - Webhook server on port 3939
 - Filesystem watchers
 - Cron-based scheduling
 - Graceful shutdown with job queue drain
+
+### Foreground Mode
+
+Run the daemon in the current terminal with live log output:
+
+```bash
+beercan start -f           # Foreground with live logs
+beercan start --foreground # Same thing
+beercan start              # Background (default)
+```
+
+Foreground mode streams `~/.beercan/beercan.log` to your terminal in real-time. Stop with Ctrl+C.
 
 ## REST API
 
@@ -445,7 +457,9 @@ beercan skill:list                      List installed skills
 beercan config set KEY=VALUE            Set a config value
 beercan config get KEY                  Get a config value
 beercan config list                     Show all config
-beercan daemon                              Run scheduler + events
+beercan start                               Start daemon (background)
+beercan start -f | --foreground             Start daemon in foreground with live logs
+beercan stop                                Stop background daemon
 beercan chat [project]                  Interactive Skippy chat
 beercan serve [port]                    API server (default: 3939)
 beercan bootstrap [goal]                    Self-improvement bloop

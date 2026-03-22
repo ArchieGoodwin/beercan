@@ -186,22 +186,44 @@ async function runSetup(): Promise<void> {
 
 async function runStop(): Promise<void> {
   const os = await import("os");
+  const { execSync } = await import("child_process");
   const dataDir = process.env.BEERCAN_DATA_DIR ?? path.join(os.default.homedir(), ".beercan");
   const pidPath = path.join(dataDir, "beercan.pid");
 
-  if (!fs.existsSync(pidPath)) {
-    console.log(chalk.dim("BeerCan is not running."));
-    return;
+  let stopped = false;
+
+  // Try PID file first
+  if (fs.existsSync(pidPath)) {
+    const pid = parseInt(fs.readFileSync(pidPath, "utf-8").trim(), 10);
+    try {
+      process.kill(pid, "SIGTERM");
+      console.log(chalk.green(`BeerCan stopped (PID ${pid}).`));
+      stopped = true;
+    } catch {
+      // Process doesn't exist
+    }
+    fs.unlinkSync(pidPath);
   }
 
-  const pid = parseInt(fs.readFileSync(pidPath, "utf-8").trim(), 10);
+  // Also find any orphaned daemon processes (e.g., from stale PID file mismatch)
   try {
-    process.kill(pid, "SIGTERM");
-    fs.unlinkSync(pidPath);
-    console.log(chalk.green(`BeerCan stopped (PID ${pid}).`));
-  } catch {
-    fs.unlinkSync(pidPath);
-    console.log(chalk.dim("BeerCan was not running (stale PID file cleaned up)."));
+    const psOutput = execSync("ps -eo pid,command", { encoding: "utf-8" });
+    const orphans = psOutput.split("\n")
+      .filter((line) => line.includes("beercan") && line.includes("_daemon") && !line.includes("grep"))
+      .map((line) => parseInt(line.trim().split(/\s+/)[0], 10))
+      .filter((pid) => pid !== process.pid && !isNaN(pid));
+
+    for (const pid of orphans) {
+      try {
+        process.kill(pid, "SIGTERM");
+        console.log(chalk.green(`Stopped orphaned daemon (PID ${pid}).`));
+        stopped = true;
+      } catch {}
+    }
+  } catch {}
+
+  if (!stopped) {
+    console.log(chalk.dim("BeerCan is not running."));
   }
 }
 
@@ -1049,7 +1071,7 @@ Do NOT rewrite everything — make focused, incremental changes.`,
         const pidFile = path.join(gc().dataDir, "beercan.pid");
         const foreground = args.includes("--foreground") || args.includes("-f");
 
-        // Check if already running
+        // Check if already running (PID file or orphaned process)
         if (fs.existsSync(pidFile)) {
           const existingPid = parseInt(fs.readFileSync(pidFile, "utf-8").trim(), 10);
           try {
@@ -1061,6 +1083,21 @@ Do NOT rewrite everything — make focused, incremental changes.`,
             fs.unlinkSync(pidFile);
           }
         }
+        // Also check for orphaned daemon processes without PID file
+        try {
+          const { execSync: execSyncStart } = await import("child_process");
+          const psOut = execSyncStart("ps -eo pid,command", { encoding: "utf-8" });
+          const orphan = psOut.split("\n").find((l) =>
+            l.includes("beercan") && l.includes("_daemon") && !l.includes("grep")
+          );
+          if (orphan) {
+            const orphanPid = parseInt(orphan.trim().split(/\s+/)[0], 10);
+            if (orphanPid && orphanPid !== process.pid) {
+              console.log(chalk.yellow(`BeerCan daemon found running (PID ${orphanPid}) without PID file. Use ${chalk.cyan("beercan stop")} first.`));
+              break;
+            }
+          }
+        } catch {}
 
         // Gather startup info
         const pkgPath = new URL("../package.json", import.meta.url);

@@ -41,7 +41,7 @@ CLI commands via `npm run beercan --` (or `beercan` if installed globally):
 - `setup` — interactive first-time configuration wizard (API keys, models, integrations)
 - `chat [project]` — interactive conversational mode (terminal REPL)
 - `serve [port]` — start API-only server (default port 3939)
-- `daemon` — run scheduler + event system + API + chat providers
+- `daemon` — run scheduler + event system + API + chat providers (use `-f` for foreground with live logs)
 
 **Scheduling & events:**
 - `schedule:add/list/remove` — cron-based bloop scheduling
