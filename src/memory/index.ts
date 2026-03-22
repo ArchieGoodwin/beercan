@@ -211,6 +211,15 @@ export class MemoryManager {
     });
   }
 
+  /** Delete a memory entry by ID (also removes vector + FTS) */
+  deleteEntry(memoryId: string): boolean {
+    const existing = this.db.getMemoryEntry(memoryId);
+    if (!existing) return false;
+    this.vecStore.delete(memoryId);
+    this.db.deleteMemoryEntry(memoryId);
+    return true;
+  }
+
   // ── Retrieve Context ──────────────────────────────────
 
   /** Retrieve relevant past context for a new goal */

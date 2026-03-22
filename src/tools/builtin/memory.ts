@@ -21,6 +21,7 @@ export function createMemoryTools(
     { definition: memorySearchDef, handler: createMemorySearchHandler(memory, getBloopContext) },
     { definition: memoryStoreDef, handler: createMemoryStoreHandler(memory, getBloopContext) },
     { definition: memoryUpdateDef, handler: createMemoryUpdateHandler(memory, getBloopContext) },
+    { definition: memoryDeleteDef, handler: createMemoryDeleteHandler(memory) },
     { definition: memoryLinkDef, handler: createMemoryLinkHandler(memory, getBloopContext) },
     { definition: memoryQueryGraphDef, handler: createMemoryQueryGraphHandler(memory, getBloopContext) },
     { definition: memoryScratchDef, handler: createMemoryScratchHandler(memory, getBloopContext) },
@@ -147,6 +148,32 @@ function createMemoryUpdateHandler(memory: MemoryManager, getCtx: () => BloopCon
 
     if (!updated) return `Memory not found: ${input.memory_id}`;
     return `Memory updated. New version ID: ${updated.id} (supersedes ${input.memory_id})`;
+  };
+}
+
+// ── memory_delete ───────────────────────────────────────────
+
+const memoryDeleteDef: ToolDefinition = {
+  name: "memory_delete",
+  description:
+    "Delete a memory entry by ID. Use for cleaning up duplicate, stale, or incorrect memories. Also removes associated vector embeddings and FTS index entries.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      memory_id: { type: "string", description: "ID of the memory entry to delete" },
+      reason: { type: "string", description: "Brief reason for deletion (logged, not stored)" },
+    },
+    required: ["memory_id"],
+  },
+};
+
+function createMemoryDeleteHandler(memory: MemoryManager): ToolHandler {
+  return async (input) => {
+    const memoryId = input.memory_id as string;
+    const reason = (input.reason as string) || "no reason given";
+    const deleted = memory.deleteEntry(memoryId);
+    if (!deleted) return `Memory not found: ${memoryId}`;
+    return `Memory deleted: ${memoryId} (reason: ${reason})`;
   };
 }
 

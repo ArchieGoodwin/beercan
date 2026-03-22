@@ -41,6 +41,7 @@ export function createSpawningTools(
     { definition: listProjectsDef, handler: createListProjectsHandler(deps) },
     { definition: searchCrossProjectDef, handler: createSearchCrossProjectHandler(deps, getBloopContext, memory) },
     { definition: searchPreviousAttemptsDef, handler: createSearchPreviousAttemptsHandler(getBloopContext, memory) },
+    { definition: listJobsDef, handler: createListJobsHandler(db) },
   ];
 }
 
@@ -316,6 +317,49 @@ function createSearchPreviousAttemptsHandler(
     });
 
     return `Previous attempts (${results.length}):\n\n${lines.join("\n\n")}`;
+  };
+}
+
+// ── list_jobs ───────────────────────────────────────────────
+
+const listJobsDef: ToolDefinition = {
+  name: "list_jobs",
+  description:
+    "List jobs from the job queue with status, age, and project info. " +
+    "Use for monitoring queue health, finding stale jobs, and inspecting failures.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      status: {
+        type: "string",
+        enum: ["pending", "running", "completed", "failed"],
+        description: "Filter by job status (optional, returns all if omitted)",
+      },
+      limit: { type: "number", description: "Max results (default 20)" },
+    },
+    required: [],
+  },
+};
+
+function createListJobsHandler(db: BeerCanDB): ToolHandler {
+  return async (input) => {
+    const status = input.status as string | undefined;
+    const limit = (input.limit as number) ?? 20;
+
+    const jobs = db.listJobs(status, limit);
+    if (jobs.length === 0) return `No jobs found${status ? ` with status "${status}"` : ""}.`;
+
+    const lines = jobs.map((j: any) => {
+      const age = Date.now() - new Date(j.createdAt).getTime();
+      const ageStr = age > 86400000
+        ? `${Math.floor(age / 86400000)}d ago`
+        : age > 3600000
+        ? `${Math.floor(age / 3600000)}h ago`
+        : `${Math.floor(age / 60000)}m ago`;
+      return `- [${j.status}] ${j.projectSlug}: ${(j.goal || "").slice(0, 80)} (${ageStr}, priority: ${j.priority})`;
+    });
+
+    return `Jobs (${jobs.length}):\n${lines.join("\n")}`;
   };
 }
 
