@@ -55,11 +55,15 @@ export const writeFileHandler: ToolHandler = async (input) => {
   const filePath = input.path as string;
   const content = input.content as string;
 
-  if (content == null || typeof content !== "string") {
+  if (content == null || typeof content !== "string" || content.length === 0) {
     throw new Error(
-      "'content' parameter is required and must be a non-empty string — you must provide the file content to write. " +
-      "HINT: If your content is very large, break it into smaller sections and write them incrementally, " +
-      "or summarize/condense the content before writing. Do NOT retry with the same approach."
+      "'content' parameter was empty or missing. This usually means the content was too large for a single tool call and got truncated. " +
+      "YOU MUST USE A DIFFERENT APPROACH — do NOT retry write_file with the same large content. Instead:\n" +
+      "1. BEST: Use exec_command with a Python/Node script that generates and writes the file, e.g.:\n" +
+      "   exec_command({ command: \"python3 generate_html.py\", cwd: \"...\" })\n" +
+      "2. OR: Write a small script file first, then exec_command to run it.\n" +
+      "3. OR: Break the content into sections <3000 chars each — write_file for the first, append_file for each additional section.\n" +
+      "Do NOT attempt to pass the full content in write_file again — it WILL fail the same way."
     );
   }
 

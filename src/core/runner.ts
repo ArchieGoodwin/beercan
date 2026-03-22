@@ -528,6 +528,9 @@ export class BloopRunner {
       }
       if (availableToolNames.some((t) => t === "exec_command" || t === "*")) {
         capabilities.push("- exec_command: Execute shell commands. Use for running scripts, builds, tests, etc.");
+        capabilities.push("LARGE FILE WRITING: If you need to write a file >3000 chars, do NOT put all the content in write_file — it will get truncated. " +
+          "Instead, use exec_command to run a script (Python/Node) that generates the file. " +
+          "Example: write a small .py script with write_file, then exec_command to run it.");
       }
       parts.push(`\n--- Available Tools ---\nTools: ${toolList}\n${capabilities.join("\n")}`);
     }

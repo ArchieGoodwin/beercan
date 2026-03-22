@@ -1164,6 +1164,10 @@ Do NOT rewrite everything — make focused, incremental changes.`,
           printStartupInfo(process.pid);
           console.log(chalk.dim(`\n  Stop: Ctrl+C\n`));
 
+          // Suppress stdout logging — tail -f shows the log file instead,
+          // which prevents duplicate log lines in the terminal.
+          engine.getLogger().setQuiet(true);
+
           // Tail the log file in real-time
           const logFile = gc().logFile ?? path.join(gc().dataDir, "beercan.log");
           const { spawn: spawnTail } = await import("child_process");

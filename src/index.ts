@@ -535,6 +535,10 @@ export class BeerCanEngine {
     return this.tools;
   }
 
+  getLogger(): Logger {
+    return this.logger;
+  }
+
   getDB(): BeerCanDB {
     return this.db;
   }
