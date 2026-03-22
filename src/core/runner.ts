@@ -123,6 +123,35 @@ export class BloopRunner {
       };
     }
 
+    // Inject recent bloop history so agents know what happened in this project
+    const recentBloops = this.db.getProjectBloops(project.id)
+      .slice(0, 5)
+      .filter((b) => b.id !== bloop.id);
+
+    if (recentBloops.length > 0) {
+      const historyLines = recentBloops.map((b) => {
+        const resultStr = b.result
+          ? typeof b.result === "string" ? b.result : JSON.stringify(b.result)
+          : "";
+        // Extract file paths from tool calls for context
+        const filePaths = b.toolCalls
+          .filter((tc) => tc.toolName === "write_file" || tc.toolName === "read_file")
+          .map((tc) => {
+            const input = tc.input as Record<string, unknown>;
+            return `${tc.toolName}(${input?.path ?? ""})`;
+          })
+          .filter(Boolean)
+          .slice(0, 5);
+        const fileInfo = filePaths.length > 0 ? ` | Files: ${filePaths.join(", ")}` : "";
+        return `- [${b.status}] ${b.goal.slice(0, 120)} (${b.tokensUsed} tokens${fileInfo})`;
+      });
+      const historyCtx = `\n--- Recent Project Activity (${project.name}) ---\n${historyLines.join("\n")}`;
+      options = {
+        ...options,
+        extraContext: (options.extraContext ?? "") + historyCtx,
+      };
+    }
+
     // Set up timeout + abort
     const timeoutMs = config.bloopTimeoutMs;
     const abortController = new AbortController();
