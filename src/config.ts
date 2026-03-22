@@ -46,7 +46,7 @@ const ConfigSchema = z.object({
   heartbeatActiveHours: z.string().default("08:00-22:00"),
   heartbeatMinInterval: z.number().default(5),
   // Phase 4: Reflection
-  reflectionEnabled: z.boolean().default(false),
+  reflectionEnabled: z.boolean().default(true),
   reflectionModel: z.string().optional(),
   // System projects
   maintenanceEnabled: z.boolean().default(true),

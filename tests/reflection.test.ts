@@ -84,17 +84,17 @@ describe("Reflection", () => {
   // ── shouldReflect ─────────────────────────────────────────
 
   describe("shouldReflect", () => {
-    it("returns false when reflection is disabled globally and on project", () => {
-      // Config has reflectionEnabled: false by default
+    it("returns true when reflection is enabled globally by default", () => {
+      // Config has reflectionEnabled: true by default
       const bloop = makeBloop();
       const project = makeProject();
-      expect(shouldReflect(bloop, project)).toBe(false);
+      expect(shouldReflect(bloop, project)).toBe(true);
     });
 
-    it("returns true when project enables reflection", () => {
+    it("returns false when project explicitly disables reflection", () => {
       const bloop = makeBloop();
-      const project = makeProject({ context: { reflectionEnabled: true } });
-      expect(shouldReflect(bloop, project)).toBe(true);
+      const project = makeProject({ context: { reflectionEnabled: false } });
+      expect(shouldReflect(bloop, project)).toBe(false);
     });
 
     it("returns false when project explicitly disables reflection even if global is on", () => {

@@ -60,14 +60,40 @@ export class MemoryManager {
     if (bloop.status !== "completed" || !bloop.result) return;
 
     try {
-      const summary = typeof bloop.result === "string"
+      const resultStr = typeof bloop.result === "string"
         ? bloop.result
-        : JSON.stringify(bloop.result).slice(0, 2000);
+        : JSON.stringify(bloop.result).slice(0, 1500);
+
+      // Extract useful context from tool calls
+      const toolSummary: string[] = [];
+      const toolNames = [...new Set(bloop.toolCalls.map((tc) => tc.toolName))];
+      if (toolNames.length > 0) {
+        toolSummary.push(`Tools used: ${toolNames.join(", ")}`);
+      }
+      const filePaths = bloop.toolCalls
+        .filter((tc) => tc.toolName === "write_file" || tc.toolName === "append_file")
+        .map((tc) => (tc.input as Record<string, unknown>)?.path)
+        .filter(Boolean);
+      if (filePaths.length > 0) {
+        toolSummary.push(`Files created: ${[...new Set(filePaths)].join(", ")}`);
+      }
+      const readPaths = bloop.toolCalls
+        .filter((tc) => tc.toolName === "read_file")
+        .map((tc) => (tc.input as Record<string, unknown>)?.path)
+        .filter(Boolean);
+      if (readPaths.length > 0) {
+        toolSummary.push(`Files read: ${[...new Set(readPaths)].slice(0, 5).join(", ")}`);
+      }
+
+      const summary = [
+        resultStr,
+        toolSummary.length > 0 ? `\n--- Execution Details ---\n${toolSummary.join("\n")}` : "",
+        `Tokens: ${bloop.tokensUsed}, Iterations: ${bloop.iterations}`,
+      ].filter(Boolean).join("\n");
 
       const now = new Date().toISOString();
       const memoryId = uuid();
 
-      // Create structured memory entry (FTS5-indexed)
       const entry: MemoryEntry = {
         id: memoryId,
         projectId: bloop.projectId,
