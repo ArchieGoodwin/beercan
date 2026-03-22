@@ -22,17 +22,19 @@ export class MaintenanceManager {
     this.executor = executor;
   }
 
-  /** Start periodic maintenance. Runs once after a 60s settle delay, then on interval. */
+  /** Start periodic maintenance on interval (no run on startup). */
   start(intervalMinutes: number): void {
-    // Initial run after startup settle
-    setTimeout(() => this.enqueueMaintenance(), 60_000);
-
     this.interval = setInterval(
       () => this.enqueueMaintenance(),
       intervalMinutes * 60 * 1000,
     );
 
     console.log(`[maintenance] Started (every ${intervalMinutes}min)`);
+  }
+
+  /** Manually trigger a maintenance run. */
+  runNow(): void {
+    this.enqueueMaintenance();
   }
 
   stop(): void {

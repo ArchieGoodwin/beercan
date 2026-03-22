@@ -412,7 +412,7 @@ Requires `ANTHROPIC_API_KEY` in `.env`. Optional env vars:
 | `BEERCAN_HEARTBEAT_INTERVAL` | `30` | Default heartbeat interval in minutes |
 | `BEERCAN_HEARTBEAT_HOURS` | `08:00-22:00` | Default heartbeat active hours |
 | `BEERCAN_MAINTENANCE_ENABLED` | `true` | Enable _maintenance system project in daemon |
-| `BEERCAN_MAINTENANCE_INTERVAL` | `360` | Minutes between maintenance runs |
+| `BEERCAN_MAINTENANCE_INTERVAL` | `10080` (7 days) | Minutes between maintenance runs |
 | `BEERCAN_CALENDAR_ENABLED` | `false` | Enable _calendar system project (macOS only) |
 | `BEERCAN_CALENDAR_CHECK_INTERVAL` | `60` | Minutes between calendar checks |
 | `BEERCAN_CALENDAR_MORNING_BRIEF_CRON` | `0 8 * * *` | Cron expression for morning calendar brief |

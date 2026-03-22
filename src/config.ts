@@ -50,7 +50,7 @@ const ConfigSchema = z.object({
   reflectionModel: z.string().optional(),
   // System projects
   maintenanceEnabled: z.boolean().default(true),
-  maintenanceIntervalMinutes: z.number().default(360),
+  maintenanceIntervalMinutes: z.number().default(10080), // 7 days
   calendarEnabled: z.boolean().default(false),
   calendarCheckIntervalMinutes: z.number().default(60),
   calendarMorningBriefCron: z.string().default("0 8 * * *"),
