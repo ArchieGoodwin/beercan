@@ -45,12 +45,14 @@ export class MaintenanceManager {
   private enqueueMaintenance(): void {
     const goal = [
       "System maintenance tasks:",
-      "1. Search memory across all projects for duplicate or redundant entries and consolidate them.",
-      "2. Check the job queue for stale jobs older than 24 hours and report any found.",
+      "1. Search memory across all projects for duplicate or redundant entries — DELETE duplicates using memory_delete tool.",
+      "2. Check the job queue using list_jobs for stale jobs older than 24 hours.",
       "3. Review recent bloop failures across all projects and summarize patterns.",
-      "4. Check memory entries that may be outdated and flag them for review.",
+      "4. Delete outdated or stale memory entries using memory_delete.",
       "5. If you find cross-project insights worth preserving, store them in memory.",
       "",
+      "You MUST use memory_delete to clean up duplicates and stale entries — do not just report them.",
+      "You have these tools: memory_search, memory_store, memory_update, memory_delete, list_jobs, list_projects, search_cross_project.",
       "Be concise. Only report findings that need attention.",
       "If everything looks healthy and no action is needed, respond with: MAINTENANCE_CLEAN",
     ].join("\n");
