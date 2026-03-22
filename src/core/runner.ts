@@ -355,7 +355,7 @@ export class BloopRunner {
 
       const response = await this.client.messages.create({
         model,
-        max_tokens: 4096,
+        max_tokens: 16384,
         system: systemPrompt,
         tools: anthropicTools.length > 0 ? anthropicTools : undefined,
         messages,

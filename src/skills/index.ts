@@ -136,6 +136,69 @@ export class SkillManager {
       config: {},
       enabled: true,
     });
+
+    this.skills.set("markdown-to-html", {
+      name: "markdown-to-html",
+      description: "Convert markdown files to styled HTML pages using a Python conversion script",
+      triggers: [
+        "html page", "html from", "convert to html", "create html",
+        "generate html", "markdown to html", "web page from", "display as html",
+      ],
+      instructions: [
+        `CRITICAL: You CANNOT write large HTML files directly with write_file — the content will be truncated if it exceeds ~12,000 chars.`,
+        ``,
+        `For large HTML files, use this approach:`,
+        `1. Read the source markdown file to understand its structure.`,
+        `2. Write a small Python script (convert_md.py) that:`,
+        `   - Reads the markdown file`,
+        `   - Parses sections using string splitting or regex`,
+        `   - Generates HTML with inline CSS`,
+        `   - Writes the complete HTML file`,
+        `3. Run the script with exec_command: python3 convert_md.py`,
+        `4. Verify the output file exists and has reasonable size: exec_command wc -c output.html`,
+        ``,
+        `For smaller HTML files (<10,000 chars), you can use write_file directly.`,
+        `For medium files, use write_file for the first section, then append_file for additional sections.`,
+        ``,
+        `NEVER try to pass >12,000 chars of content in a single write_file call.`,
+      ].join("\n"),
+      requiredTools: ["read_file", "write_file", "append_file", "exec_command"],
+      config: {},
+      enabled: true,
+    });
+
+    this.skills.set("calendar-assistant", {
+      name: "calendar-assistant",
+      description: "macOS calendar assistant — reads events, creates events, analyzes schedules, tracks recurring patterns",
+      triggers: [
+        "calendar", "schedule", "meeting", "appointment", "event", "agenda",
+        "free time", "availability", "book a", "schedule a", "what's on",
+        "what do i have", "my week", "my day", "upcoming", "recurring",
+        "standup", "block time", "time slot", "when am i free", "next meeting",
+      ],
+      instructions: [
+        `You are a calendar assistant with access to macOS Calendar via EventKit.`,
+        ``,
+        `Available tools:`,
+        `- calendar_list: List all calendars (name, source, writable status)`,
+        `- calendar_get_events: Fetch events in a date range (start_date, end_date in YYYY-MM-DD, optional calendar_name)`,
+        `- calendar_create_event: Create event (title, start_date, end_date in ISO 8601, optional: calendar_name, location, notes, all_day)`,
+        `- calendar_search: Search events by keyword (query, optional start_date/end_date)`,
+        ``,
+        `Guidelines:`,
+        `- Always start by listing calendars to understand the setup.`,
+        `- Convert relative dates ("today", "tomorrow", "next week") to concrete YYYY-MM-DD dates.`,
+        `- Present events chronologically, grouped by day: HH:MM - HH:MM | Title (Calendar) [Location]`,
+        `- For recurring events, search with a 60-day window to identify patterns.`,
+        `- Before creating events, confirm details and suggest the appropriate calendar based on context.`,
+        `- Default meeting duration: 30 minutes. Set all_day: true for deadlines/holidays.`,
+        `- If notes contain video call links (Zoom, Meet, Teams), surface them when presenting events.`,
+        `- For availability analysis, identify gaps between events during working hours (09:00-18:00).`,
+      ].join("\n"),
+      requiredTools: ["calendar_list", "calendar_get_events", "calendar_create_event", "calendar_search"],
+      config: {},
+      enabled: true,
+    });
   }
 
   /** Get all loaded skills */
