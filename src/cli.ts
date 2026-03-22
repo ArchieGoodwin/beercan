@@ -1047,6 +1047,7 @@ Do NOT rewrite everything — make focused, incremental changes.`,
       case "start": {
         const { getConfig: gc } = await import("./config.js");
         const pidFile = path.join(gc().dataDir, "beercan.pid");
+        const foreground = args.includes("--foreground") || args.includes("-f");
 
         // Check if already running
         if (fs.existsSync(pidFile)) {
@@ -1061,17 +1062,7 @@ Do NOT rewrite everything — make focused, incremental changes.`,
           }
         }
 
-        // Fork a background process
-        const { fork } = await import("child_process");
-        const child = fork(process.argv[1], ["_daemon"], {
-          detached: true,
-          stdio: "ignore",
-        });
-
-        child.unref();
-        fs.writeFileSync(pidFile, String(child.pid));
-
-        // Show friendly startup info
+        // Gather startup info
         const pkgPath = new URL("../package.json", import.meta.url);
         let version = "?";
         try { version = JSON.parse(fs.readFileSync(pkgPath, "utf-8")).version; } catch {}
@@ -1080,39 +1071,89 @@ Do NOT rewrite everything — make focused, incremental changes.`,
         const schedules = engine.getScheduler().listSchedules();
         const bloopStats = engine.getBloopStats();
         const skills = engine.getSkillManager().getEnabledSkills();
+        const builtinToolCount = engine.getToolRegistry().listToolNames().length;
         const customToolsDir = path.join(gc().dataDir, "tools");
         const customTools = fs.existsSync(customToolsDir)
           ? fs.readdirSync(customToolsDir).filter((f: string) => f.endsWith(".js") || f.endsWith(".mjs"))
           : [];
 
-        console.log(chalk.bold.blue(`\n🍺 BeerCan v${version} started`));
-        console.log(chalk.dim(`  PID:        ${child.pid}`));
-        console.log(chalk.dim(`  API:        http://localhost:3939`));
-        console.log(chalk.dim(`  Dashboard:  http://localhost:3939/`));
-        console.log(chalk.dim(`  Projects:   ${projects.length}`));
-        console.log(chalk.dim(`  Schedules:  ${schedules.length}${schedules.length > 0 ? ` (${schedules.filter(s => s.enabled).length} active)` : ""}`));
-        console.log(chalk.dim(`  Bloops:     ${bloopStats.total} total (${bloopStats.completed} completed, ${bloopStats.failed} failed)`));
-        console.log(chalk.dim(`  Skills:     ${skills.length} active`));
-        console.log(chalk.dim(`  Tools:      13 built-in + ${customTools.length} custom`));
-        if (schedules.length > 0) {
-          console.log(chalk.dim(`\n  Active schedules:`));
-          for (const s of schedules.filter(s => s.enabled)) {
-            console.log(chalk.dim(`    ${chalk.cyan(s.cronExpression)} ${s.projectSlug} — ${s.goal.slice(0, 50)}`));
+        const printStartupInfo = (pid: number | string) => {
+          console.log(chalk.bold.blue(`\n🍺 BeerCan v${version} started`));
+          console.log(chalk.dim(`  PID:        ${pid}`));
+          console.log(chalk.dim(`  Mode:       ${foreground ? "foreground" : "background"}`));
+          console.log(chalk.dim(`  API:        http://localhost:3939`));
+          console.log(chalk.dim(`  Dashboard:  http://localhost:3939/`));
+          console.log(chalk.dim(`  Projects:   ${projects.length}`));
+          console.log(chalk.dim(`  Schedules:  ${schedules.length}${schedules.length > 0 ? ` (${schedules.filter(s => s.enabled).length} active)` : ""}`));
+          console.log(chalk.dim(`  Bloops:     ${bloopStats.total} total (${bloopStats.completed} completed, ${bloopStats.failed} failed)`));
+          console.log(chalk.dim(`  Skills:     ${skills.length} active`));
+          console.log(chalk.dim(`  Tools:      ${builtinToolCount} built-in + ${customTools.length} custom`));
+          if (schedules.length > 0) {
+            console.log(chalk.dim(`\n  Active schedules:`));
+            for (const s of schedules.filter(s => s.enabled)) {
+              console.log(chalk.dim(`    ${chalk.cyan(s.cronExpression)} ${s.projectSlug} — ${s.goal.slice(0, 50)}`));
+            }
           }
-        }
-        if (skills.length > 0) {
-          console.log(chalk.dim(`\n  Active skills:`));
-          for (const s of skills) {
-            console.log(chalk.dim(`    ${chalk.cyan(s.name)} — ${s.description.slice(0, 50)}`));
+          if (skills.length > 0) {
+            console.log(chalk.dim(`\n  Active skills:`));
+            for (const s of skills) {
+              console.log(chalk.dim(`    ${chalk.cyan(s.name)} — ${s.description.slice(0, 50)}`));
+            }
           }
-        }
-        if (customTools.length > 0) {
-          console.log(chalk.dim(`\n  Custom tools:`));
-          for (const t of customTools) {
-            console.log(chalk.dim(`    ${chalk.cyan(t.replace(/\.(js|mjs)$/, ""))}`));
+          if (customTools.length > 0) {
+            console.log(chalk.dim(`\n  Custom tools:`));
+            for (const t of customTools) {
+              console.log(chalk.dim(`    ${chalk.cyan(t.replace(/\.(js|mjs)$/, ""))}`));
+            }
           }
+        };
+
+        if (foreground) {
+          // ── Foreground mode: run daemon in this process with live logs ──
+          fs.writeFileSync(pidFile, String(process.pid));
+          const cleanPid = () => { try { fs.unlinkSync(pidFile); } catch {} };
+          process.on("exit", cleanPid);
+
+          printStartupInfo(process.pid);
+          console.log(chalk.dim(`\n  Stop: Ctrl+C\n`));
+
+          // Tail the log file in real-time
+          const logFile = gc().logFile ?? path.join(gc().dataDir, "beercan.log");
+          let logTail: any = null;
+          if (fs.existsSync(logFile)) {
+            const { spawn } = await import("child_process");
+            logTail = spawn("tail", ["-f", logFile], { stdio: ["ignore", "inherit", "inherit"] });
+          } else {
+            // Watch for log file creation then start tailing
+            const logDir = path.dirname(logFile);
+            const watcher = fs.watch(logDir, (_, filename) => {
+              if (filename === path.basename(logFile) && fs.existsSync(logFile)) {
+                watcher.close();
+                import("child_process").then(({ spawn }) => {
+                  logTail = spawn("tail", ["-f", logFile], { stdio: ["ignore", "inherit", "inherit"] });
+                });
+              }
+            });
+          }
+
+          const scheduler = engine.getScheduler();
+          const eventManager = engine.getEventManager();
+          await startDaemon(engine, scheduler, eventManager);
+          if (logTail) logTail.kill();
+        } else {
+          // ── Background mode: fork and detach ──
+          const { fork } = await import("child_process");
+          const child = fork(process.argv[1], ["_daemon"], {
+            detached: true,
+            stdio: "ignore",
+          });
+
+          child.unref();
+          fs.writeFileSync(pidFile, String(child.pid));
+
+          printStartupInfo(child.pid!);
+          console.log(chalk.dim(`\n  Stop: beercan stop\n`));
         }
-        console.log(chalk.dim(`\n  Stop: beercan stop\n`));
         break;
       }
 

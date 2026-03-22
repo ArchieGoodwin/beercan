@@ -529,6 +529,10 @@ export class BeerCanEngine {
     return this.skillManager;
   }
 
+  getToolRegistry(): ToolRegistry {
+    return this.tools;
+  }
+
   getDB(): BeerCanDB {
     return this.db;
   }
