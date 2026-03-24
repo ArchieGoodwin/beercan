@@ -50,6 +50,9 @@ import {
 } from "./tools/builtin/environment.js";
 import { CryptoManager } from "./crypto/index.js";
 import { ensureSystemProjects } from "./core/system-projects.js";
+import { TrainingSandboxManager } from "./training/index.js";
+import { AgentExporter } from "./training/index.js";
+import type { TrainingProgress, TrainingScenario, ScenarioAttempt } from "./training/index.js";
 
 // ── BeerCan Engine ───────────────────────────────────────────
 
@@ -67,6 +70,8 @@ export class BeerCanEngine {
   private eventManager!: EventManager;
   private skillManager: SkillManager;
   private cryptoManager: CryptoManager;
+  private trainingSandbox!: TrainingSandboxManager;
+  private agentExporter: AgentExporter;
 
   constructor() {
     // Initialize logger
@@ -87,6 +92,7 @@ export class BeerCanEngine {
     this.mcpManager = new MCPManager();
     this.skillManager = new SkillManager(this.config.dataDir);
     this.skillManager.load();
+    this.agentExporter = new AgentExporter();
     this.registerBuiltinTools();
 
     // Enable log sanitization when encryption is active or explicitly requested
@@ -161,6 +167,9 @@ export class BeerCanEngine {
 
     // Ensure system projects exist
     ensureSystemProjects(this);
+
+    // Initialize training sandbox manager
+    this.trainingSandbox = new TrainingSandboxManager(this, this.db, this.config);
 
     this.logger.info("engine", "Async init complete");
     return this;
@@ -342,6 +351,51 @@ export class BeerCanEngine {
     const project = this.db.getProjectBySlug(projectSlug);
     if (!project) return [];
     return this.db.getProjectBloops(project.id, status);
+  }
+
+  // ── Training API ────────────────────────────────────────────
+
+  /** Create a new trainee project. */
+  async createTrainee(name: string, workDir?: string): Promise<Project> {
+    return this.trainingSandbox.createTrainee(name, workDir);
+  }
+
+  /** Run the next (or a specific) training scenario. */
+  async runTrainingScenario(
+    projectSlug: string,
+    scenarioId?: string,
+  ): Promise<ScenarioAttempt> {
+    return this.trainingSandbox.runScenario(projectSlug, scenarioId);
+  }
+
+  /** Get training status for a project. */
+  async getTrainingStatus(projectSlug: string): Promise<{
+    progress: TrainingProgress;
+    nextScenario: TrainingScenario | null;
+    summary: string;
+  }> {
+    return this.trainingSandbox.getStatus(projectSlug);
+  }
+
+  /** Export a graduated/in-progress agent to a portable package. */
+  async exportAgent(projectSlug: string, outputPath: string): Promise<void> {
+    return this.agentExporter.export(projectSlug, this.db, this.config, outputPath);
+  }
+
+  /** Import a packaged agent into a new project. */
+  async importAgent(packagePath: string, targetSlug?: string): Promise<Project> {
+    return this.agentExporter.import(
+      packagePath,
+      targetSlug ?? "",
+      this,
+      this.db,
+      this.config,
+    );
+  }
+
+  /** Get the training sandbox manager (for advanced usage). */
+  getTrainingSandbox(): TrainingSandboxManager {
+    return this.trainingSandbox;
   }
 
   // ── Bloop Execution ───────────────────────────────────────
@@ -581,3 +635,6 @@ export type { GatekeeperPlan, GatekeeperResult } from "./core/gatekeeper.js";
 export type { Job, JobStats } from "./core/job-queue.js";
 export type { ToolDefinition, Bloop, Project } from "./schemas.js";
 export type { MemoryEntry, MemoryType, KGEntity, KGEdge, EntityType, EdgeType, HybridSearchResult } from "./memory/index.js";
+export { TrainingSandboxManager, AgentExporter } from "./training/index.js";
+export type { TrainingScenario, TrainingProgress, ScenarioAttempt, GraduationCriteria, AgentPackage } from "./training/index.js";
+export { DEFAULT_CURRICULUM, GRADUATION_CRITERIA } from "./training/index.js";

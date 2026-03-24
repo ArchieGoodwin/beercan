@@ -1447,6 +1447,184 @@ Do NOT rewrite everything — make focused, incremental changes.`,
         break;
       }
 
+      // ── Training Commands ───────────────────────────────────
+
+      case "training:create": {
+        const traineeName = args[1];
+        if (!traineeName) {
+          console.log(chalk.red("Usage: beercan training:create <name> [--work-dir <path>]"));
+          console.log(chalk.dim("Creates a new training sandbox project for an agent."));
+          break;
+        }
+        const wdIdx = args.indexOf("--work-dir");
+        const workDir = wdIdx >= 0 ? args[wdIdx + 1] : undefined;
+
+        try {
+          const project = await engine.createTrainee(traineeName, workDir);
+          console.log(chalk.green(`✓ Created training project: ${project.name}`));
+          console.log(chalk.dim(`  Slug:  ${project.slug}`));
+          console.log(chalk.dim(`  ID:    ${project.id}`));
+          if (workDir) console.log(chalk.dim(`  Work dir: ${workDir}`));
+          console.log(chalk.dim(`\nNext: beercan training:run ${project.slug}`));
+        } catch (err: any) {
+          console.log(chalk.red(`Failed to create trainee: ${err.message}`));
+        }
+        break;
+      }
+
+      case "training:run": {
+        const trainingProject = args[1];
+        if (!trainingProject) {
+          console.log(chalk.red("Usage: beercan training:run <project> [--scenario <id>]"));
+          console.log(chalk.dim("Runs the next (or a specific) training scenario."));
+          break;
+        }
+        const scenarioIdx = args.indexOf("--scenario");
+        const scenarioId = scenarioIdx >= 0 ? args[scenarioIdx + 1] : undefined;
+
+        try {
+          const status = await engine.getTrainingStatus(trainingProject);
+          if (scenarioId) {
+            console.log(chalk.bold(`\nRunning scenario: ${scenarioId}`));
+          } else if (status.nextScenario) {
+            console.log(chalk.bold(`\nRunning next scenario: ${status.nextScenario.name}`));
+            console.log(chalk.dim(`  Difficulty: ${status.nextScenario.difficulty}`));
+            console.log(chalk.dim(`  Category:   ${status.nextScenario.category}`));
+            console.log(chalk.dim(`  Goal:       ${status.nextScenario.goal.slice(0, 80)}...`));
+          } else {
+            console.log(chalk.yellow("No scenarios available. Check status with: beercan training:status " + trainingProject));
+            break;
+          }
+          console.log();
+
+          const attempt = await engine.runTrainingScenario(trainingProject, scenarioId);
+
+          const statusColor = attempt.status === "pass"
+            ? chalk.green
+            : attempt.status === "fail"
+              ? chalk.yellow
+              : chalk.red;
+
+          console.log(statusColor(`\n${attempt.status === "pass" ? "✓ PASSED" : attempt.status === "fail" ? "✗ FAILED" : "! ERROR"}`));
+          console.log(`  Score:    ${(attempt.score * 100).toFixed(0)}%`);
+          console.log(`  Feedback: ${attempt.feedback}`);
+          console.log(chalk.dim(`  Tokens:   ${attempt.tokensUsed.toLocaleString()}`));
+          console.log(chalk.dim(`  Duration: ${(attempt.durationMs / 1000).toFixed(1)}s`));
+
+          // Show updated status
+          const newStatus = await engine.getTrainingStatus(trainingProject);
+          if (newStatus.progress.graduationStatus === "graduated") {
+            console.log(chalk.bold.green("\nCongratulations! Agent has graduated!"));
+          } else if (newStatus.nextScenario) {
+            console.log(chalk.dim(`\nNext scenario: ${newStatus.nextScenario.name} — run again to continue`));
+          }
+        } catch (err: any) {
+          console.log(chalk.red(`Training run failed: ${err.message}`));
+        }
+        break;
+      }
+
+      case "training:status": {
+        const statusProject = args[1];
+        if (!statusProject) {
+          console.log(chalk.red("Usage: beercan training:status <project>"));
+          break;
+        }
+
+        try {
+          const { progress, nextScenario, summary } = await engine.getTrainingStatus(statusProject);
+
+          const gradColor = progress.graduationStatus === "graduated"
+            ? chalk.bold.green
+            : progress.graduationStatus === "failed"
+              ? chalk.red
+              : chalk.yellow;
+
+          console.log(chalk.bold(`\nTraining Status: ${statusProject}\n`));
+          console.log(`  Graduation: ${gradColor(progress.graduationStatus)}`);
+          console.log(`  Level:      ${progress.currentLevel}`);
+          console.log(`  Passed:     ${progress.passedScenarios.length} scenarios`);
+          console.log(`  Bloops:     ${progress.totalBloops}`);
+          console.log(`  Tokens:     ${progress.totalTokensUsed.toLocaleString()}`);
+          if (progress.startedAt) {
+            console.log(chalk.dim(`  Started:    ${progress.startedAt.slice(0, 19)}`));
+          }
+          if (progress.graduatedAt) {
+            console.log(chalk.dim(`  Graduated:  ${progress.graduatedAt.slice(0, 19)}`));
+          }
+
+          if (nextScenario) {
+            console.log(chalk.bold(`\nNext Scenario:`));
+            console.log(`  ${chalk.cyan(nextScenario.name)} (${nextScenario.difficulty})`);
+            console.log(chalk.dim(`  Category: ${nextScenario.category}`));
+            console.log(chalk.dim(`  Tests: ${nextScenario.teaches.slice(0, 3).join(", ")}`));
+          }
+
+          if (progress.passedScenarios.length > 0) {
+            console.log(chalk.bold(`\nPassed Scenarios:`));
+            for (const id of progress.passedScenarios) {
+              console.log(chalk.green(`  ✓ ${id}`));
+            }
+          }
+
+          if (progress.failedScenarios.length > 0) {
+            console.log(chalk.bold(`\nFailed Scenarios:`));
+            for (const f of progress.failedScenarios) {
+              console.log(chalk.red(`  ✗ ${f.id} (${f.attempts} attempt${f.attempts !== 1 ? "s" : ""})`));
+            }
+          }
+        } catch (err: any) {
+          console.log(chalk.red(`Failed to get training status: ${err.message}`));
+        }
+        break;
+      }
+
+      case "training:export": {
+        const exportProject = args[1];
+        if (!exportProject) {
+          console.log(chalk.red("Usage: beercan training:export <project> [--output <path>]"));
+          break;
+        }
+        const outIdx = args.indexOf("--output");
+        const outputPath = outIdx >= 0
+          ? args[outIdx + 1]
+          : `./${exportProject}-agent-package.json`;
+
+        try {
+          console.log(chalk.dim(`Exporting agent: ${exportProject} → ${outputPath}`));
+          await engine.exportAgent(exportProject, outputPath);
+          console.log(chalk.green(`✓ Agent exported: ${outputPath}`));
+          console.log(chalk.dim(`  Import with: beercan training:import ${outputPath}`));
+        } catch (err: any) {
+          console.log(chalk.red(`Export failed: ${err.message}`));
+        }
+        break;
+      }
+
+      case "training:import": {
+        const importPath = args[1];
+        if (!importPath) {
+          console.log(chalk.red("Usage: beercan training:import <package-path> [--name <slug>]"));
+          break;
+        }
+        const nameIdx = args.indexOf("--name");
+        const targetSlug = nameIdx >= 0 ? args[nameIdx + 1] : undefined;
+
+        try {
+          console.log(chalk.dim(`Importing agent package: ${importPath}`));
+          const project = await engine.importAgent(importPath, targetSlug);
+          console.log(chalk.green(`✓ Agent imported: ${project.name}`));
+          console.log(chalk.dim(`  Slug: ${project.slug}`));
+          console.log(chalk.dim(`  ID:   ${project.id}`));
+          if (targetSlug && targetSlug !== project.slug) {
+            console.log(chalk.dim(`  Note: imported as ${project.slug}`));
+          }
+        } catch (err: any) {
+          console.log(chalk.red(`Import failed: ${err.message}`));
+        }
+        break;
+      }
+
       // ── Help ────────────────────────────────────────────────
 
       default:
@@ -1478,6 +1656,13 @@ Do NOT rewrite everything — make focused, incremental changes.`,
         console.log(chalk.cyan("  tool:remove <name>") + chalk.dim("                    Remove a custom tool"));
         console.log(chalk.cyan("  mcp:add <project> <name> <cmd> [args]") + chalk.dim("  Add MCP server"));
         console.log(chalk.cyan("  mcp:list <project>") + chalk.dim("                    List MCP servers"));
+        console.log();
+        console.log(chalk.bold("Training:"));
+        console.log(chalk.cyan("  training:create <name> [--work-dir <path>]") + chalk.dim("  Create a training sandbox project"));
+        console.log(chalk.cyan("  training:run <project> [--scenario <id>]") + chalk.dim("   Run next (or specific) scenario"));
+        console.log(chalk.cyan("  training:status <project>") + chalk.dim("               Show training progress"));
+        console.log(chalk.cyan("  training:export <project> [--output <path>]") + chalk.dim(" Export agent package"));
+        console.log(chalk.cyan("  training:import <package> [--name <slug>]") + chalk.dim("  Import agent package"));
         console.log();
         console.log(chalk.bold("Encryption:"));
         console.log(chalk.cyan("  crypto:setup") + chalk.dim("                          Configure encryption (passphrase or keyfile)"));
