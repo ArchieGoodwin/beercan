@@ -82,6 +82,7 @@ CLI commands via `npm run beercan --` (or `beercan` if installed globally):
 - `src/tools/builtin/filesystem.ts` — tools: read_file, write_file, list_directory, exec_command
 - `src/tools/builtin/web.ts` — tools: web_fetch (Cloudflare Browser Rendering + native fallback), http_request
 - `src/tools/builtin/notification.ts` — tool: send_notification (macOS osascript + console fallback)
+- `src/tools/builtin/email.ts` — tool: send_email (Resend API with HTML/text, attachments, CC/BCC)
 - `src/tools/builtin/environment.ts` — 4 environment tools (get_datetime, get_system_info, get_network_info, get_env_info)
 - `src/tools/builtin/calendar.ts` — 4 calendar tools (macOS EventKit via compiled Swift helper)
 - `src/tools/builtin/memory.ts` — 6 memory tools for agents
@@ -192,7 +193,7 @@ Provider-agnostic chat layer for interacting with BeerCan via natural language.
 
 ## Tool System
 
-40 built-in tools registered at engine construction:
+41 built-in tools registered at engine construction:
 
 | Tool | Category | Description |
 |------|----------|-------------|
@@ -203,6 +204,7 @@ Provider-agnostic chat layer for interacting with BeerCan via natural language.
 | `web_fetch` | Web | Fetch URL content — uses Cloudflare Browser Rendering API if configured, native fetch fallback |
 | `http_request` | Web | Full HTTP request (any method, headers, body) |
 | `send_notification` | Notification | Desktop notification (macOS osascript, console fallback) |
+| `send_email` | Email | Send email via Resend API (HTML/text, attachments, CC/BCC) |
 | `get_datetime` | Environment | Current date, time, timezone, locale, unix timestamp |
 | `get_system_info` | Environment | OS, hostname, CPU, memory, uptime, user |
 | `get_network_info` | Environment | Local IPs, network interfaces, public IP detection |
@@ -296,6 +298,33 @@ Four auto-created system projects that make BeerCan proactive and self-aware. Cr
 - `allowCrossProjectAccess: true` — can search memories across all projects
 - CLI: `projects --all` or `projects --system` to view
 
+## Agent Training Sandbox
+
+Structured onboarding system where agents learn capabilities through progressive scenarios.
+
+**Curriculum:** 25 scenarios across 4 difficulty tiers (novice → apprentice → journeyman → expert). Each scenario is a real bloop — agents use actual tools in a sandboxed project. An LLM evaluator (Haiku) + regex/contains graders judge results.
+
+**Training flow:** `createTrainee()` → project created with `isTrainee: true` + reflection enabled → `runScenario()` executes bloop → evaluator grades → progress tracked in project context → level advances when pass rate threshold met → graduation check after each pass.
+
+**Graduation criteria:** Per-level minimum pass rates (novice 80%, apprentice 67%, journeyman 57%, expert 50%), required scenarios (`memory-hello`, `file-explorer`, `capstone`).
+
+**Export/Import:** Trained agents packaged as portable JSON bundles with memories, KG entities/edges, skills, and tools. Three import modes:
+- **Default** (`training:import <pkg>`) — creates new project from package
+- **Global** (`training:import <pkg> --global`) — imports only skills & tools globally (shared across projects)
+- **Into project** (`training:import <pkg> --project <slug>`) — merges into existing project
+
+**Key source files:**
+- `src/training/types.ts` — Zod schemas for scenarios, progress, graduation criteria, agent packages
+- `src/training/curriculum.ts` — 25 built-in scenarios, graduation criteria constants
+- `src/training/evaluator.ts` — `ScenarioEvaluator` with LLM/regex/contains strategies
+- `src/training/sandbox-manager.ts` — `TrainingSandboxManager`, orchestrates training flow
+- `src/training/exporter.ts` — `AgentExporter`, export/import/importGlobal/importIntoProject
+- `src/training/index.ts` — barrel exports
+
+**CLI:** `training:create`, `training:run`, `training:status`, `training:export`, `training:import`
+
+**Engine API:** `createTrainee()`, `runTrainingScenario()`, `getTrainingStatus()`, `exportAgent()`, `importAgent()`, `importAgentGlobal()`, `importAgentIntoProject()`
+
 ## Memory Architecture
 
 Four-layer system with unified hybrid search:
@@ -336,12 +365,12 @@ beercan jobs                            # Job queue status
 ## Testing
 
 ```bash
-npm test                    # 311 unit tests (~3s)
+npm test                    # 350 unit tests (~3s)
 npm run test:integration    # 4 API integration tests (~2min, needs ANTHROPIC_API_KEY)
 npm run test:all            # Everything
 ```
 
-- **Unit tests** (`tests/`): database, memory, tools, web tools, job queue, gatekeeper, roles, decision extraction, API, spawning tools, scheduling tools, reflection, heartbeat, skill tools, integration tools
+- **Unit tests** (`tests/`): database, memory, tools, web tools, email tools, job queue, gatekeeper, roles, decision extraction, API, spawning tools, scheduling tools, reflection, heartbeat, skill tools, integration tools, training (curriculum, evaluator, exporter)
 - **Integration tests** (`tests/integration.test.ts`): write utility, summarize CSV, web research, cross-bloop memory
 
 ## Code Conventions
@@ -407,6 +436,8 @@ Requires `ANTHROPIC_API_KEY` in `.env` (or equivalent for chosen provider). Opti
 | `BEERCAN_WEBHOOK_MAX_BODY_SIZE` | `1048576` (1MB) | Max webhook body size |
 | `CLOUDFLARE_API_TOKEN` | — | For Cloudflare Browser Rendering |
 | `CLOUDFLARE_ACCOUNT_ID` | — | For Cloudflare Browser Rendering |
+| `RESEND_API_KEY` | — | Resend API key for send_email tool |
+| `RESEND_FROM_EMAIL` | — | Default sender email for send_email tool |
 | `BEERCAN_API_KEY` | — | Bearer token for API authentication |
 | `BEERCAN_NOTIFY_ON_COMPLETE` | `true` | Desktop notification on bloop completion |
 | `BEERCAN_NOTIFY_WEBHOOK_URL` | — | POST bloop results to this URL |

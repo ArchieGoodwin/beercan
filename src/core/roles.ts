@@ -101,7 +101,7 @@ Rules:
 - After writing code, always try to verify it compiles/runs.
 
 You have access to: read_file, write_file, list_directory, exec_command, web_fetch, http_request.`,
-    allowedTools: ["read_file", "write_file", "append_file", "list_directory", "exec_command", "web_fetch", "http_request", "memory_search", "memory_store", "memory_update", "memory_link", "memory_scratch"],
+    allowedTools: ["read_file", "write_file", "append_file", "list_directory", "exec_command", "web_fetch", "http_request", "send_email", "memory_search", "memory_store", "memory_update", "memory_link", "memory_scratch"],
     phase: "primary",
     maxIterations: 20,
   },

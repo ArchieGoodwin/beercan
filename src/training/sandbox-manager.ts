@@ -174,25 +174,38 @@ export class TrainingSandboxManager {
       return scenario;
     }
 
-    // Try advancing to next level if current level is mostly done
+    // Try advancing to next level only if current level meets minimum pass rate
     const nextLevelIdx = currentLevelIdx + 1;
     if (nextLevelIdx < LEVELS.length) {
-      const nextLevel = LEVELS[nextLevelIdx];
-      const nextLevelScenarios = DEFAULT_CURRICULUM.filter((s) => s.difficulty === nextLevel);
+      const currentLevel = LEVELS[currentLevelIdx];
+      const currentLevelScenarios = DEFAULT_CURRICULUM.filter((s) => s.difficulty === currentLevel);
+      const passedInCurrentLevel = currentLevelScenarios.filter((s) =>
+        progress.passedScenarios.includes(s.id)
+      ).length;
+      const currentPassRate = currentLevelScenarios.length > 0
+        ? passedInCurrentLevel / currentLevelScenarios.length
+        : 0;
+      const requiredRate = GRADUATION_CRITERIA.minPassRateByLevel[currentLevel] ?? 0;
 
-      for (const scenario of nextLevelScenarios) {
-        if (progress.passedScenarios.includes(scenario.id)) continue;
-        const failRecord = progress.failedScenarios.find((f: { id: string; attempts: number }) => f.id === scenario.id);
-        if (failRecord && failRecord.attempts >= scenario.maxAttempts) continue;
-        const prereqsMet = scenario.prerequisites.every((prereqId: string) =>
-          progress.passedScenarios.includes(prereqId)
-        );
-        if (!prereqsMet) continue;
+      // Only advance if current level meets its graduation pass rate
+      if (currentPassRate >= requiredRate) {
+        const nextLevel = LEVELS[nextLevelIdx];
+        const nextLevelScenarios = DEFAULT_CURRICULUM.filter((s) => s.difficulty === nextLevel);
 
-        // Advance level
-        progress.currentLevel = nextLevel;
-        await this.updateProgress(projectSlug, progress);
-        return scenario;
+        for (const scenario of nextLevelScenarios) {
+          if (progress.passedScenarios.includes(scenario.id)) continue;
+          const failRecord = progress.failedScenarios.find((f: { id: string; attempts: number }) => f.id === scenario.id);
+          if (failRecord && failRecord.attempts >= scenario.maxAttempts) continue;
+          const prereqsMet = scenario.prerequisites.every((prereqId: string) =>
+            progress.passedScenarios.includes(prereqId)
+          );
+          if (!prereqsMet) continue;
+
+          // Advance level
+          progress.currentLevel = nextLevel;
+          await this.updateProgress(projectSlug, progress);
+          return scenario;
+        }
       }
     }
 

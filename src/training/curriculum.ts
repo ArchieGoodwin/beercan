@@ -185,8 +185,11 @@ Then find the bug, fix it, and write the corrected version to 'fixed.js'. Report
     category: "self_improvement",
     goal: "Review the work you have done so far. Identify a useful pattern or workflow (such as 'store facts then retrieve them' or 'research then summarize'). Create a skill using the create_skill tool that captures this pattern with clear instructions for future use.",
     evaluationCriteria: "The agent created a skill that captures a useful pattern from their work.",
-    evaluatorType: "contains",
-    evaluatorConfig: { pattern: "skill", passThreshold: 0.5 },
+    evaluatorType: "llm",
+    evaluatorConfig: {
+      criteria: "Did the agent use the create_skill tool? Does the skill capture a useful, reusable pattern from prior work (not just a trivial or empty skill)? Score high for a skill with clear instructions and meaningful triggers.",
+      passThreshold: 0.6,
+    },
     teaches: ["create_skill", "meta-learning", "self-improvement", "skill creation"],
     requiredTools: ["create_skill"],
     prerequisites: ["persistent-memory"],

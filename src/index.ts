@@ -48,6 +48,9 @@ import {
   getNetworkInfoDefinition, getNetworkInfoHandler,
   getEnvInfoDefinition, getEnvInfoHandler,
 } from "./tools/builtin/environment.js";
+import {
+  sendEmailDefinition, sendEmailHandler,
+} from "./tools/builtin/email.js";
 import { CryptoManager } from "./crypto/index.js";
 import { ensureSystemProjects } from "./core/system-projects.js";
 import { TrainingSandboxManager } from "./training/index.js";
@@ -230,6 +233,9 @@ export class BeerCanEngine {
     this.tools.register(getNetworkInfoDefinition, getNetworkInfoHandler);
     this.tools.register(getEnvInfoDefinition, getEnvInfoHandler);
 
+    // Email tool (Resend API)
+    this.tools.register(sendEmailDefinition, sendEmailHandler);
+
     // Calendar tools (macOS)
     if (process.platform === "darwin") {
       this.tools.register(calendarListDefinition, calendarListHandler);
@@ -382,11 +388,27 @@ export class BeerCanEngine {
     return this.agentExporter.export(projectSlug, this.db, this.config, outputPath);
   }
 
-  /** Import a packaged agent into a new project. */
+  /** Import a packaged agent into a new project (creates project from package). */
   async importAgent(packagePath: string, targetSlug?: string): Promise<Project> {
     return this.agentExporter.import(
       packagePath,
       targetSlug ?? "",
+      this,
+      this.db,
+      this.config,
+    );
+  }
+
+  /** Import only skills and tools globally (no project created). */
+  async importAgentGlobal(packagePath: string): Promise<{ skills: number; tools: number }> {
+    return this.agentExporter.importGlobal(packagePath, this.config);
+  }
+
+  /** Import a package's data into an existing project. */
+  async importAgentIntoProject(packagePath: string, projectSlug: string): Promise<Project> {
+    return this.agentExporter.importIntoProject(
+      packagePath,
+      projectSlug,
       this,
       this.db,
       this.config,

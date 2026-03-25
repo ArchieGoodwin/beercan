@@ -207,7 +207,7 @@ Four layers in a single SQLite database (`~/.beercan/orchestrator.db`):
 
 ## Tool System
 
-13 built-in tools:
+40 built-in tools (13 core + memory + spawning + scheduling + skills + integration + calendar + environment):
 
 | Tool | Category | Description |
 |------|----------|-------------|
@@ -298,13 +298,30 @@ beercan jobs                            # Job queue status
 ## Testing
 
 ```bash
-npm test                    # 104 unit tests (~2s)
+npm test                    # 337 unit tests (~3s)
 npm run test:integration    # 4 API integration tests (~2min)
 npm run test:all            # Everything
 ```
 
-**Unit tests:** database, memory, tools, web tools, job queue, gatekeeper, roles, decision extraction
-**Integration tests:** write utility, summarize CSV, web research, cross-loop memory
+**Unit tests:** database, memory, tools, web tools, job queue, gatekeeper, roles, decision extraction, API, spawning tools, scheduling tools, reflection, heartbeat, skill tools, integration tools, training
+**Integration tests:** write utility, summarize CSV, web research, cross-bloop memory
+
+---
+
+## Agent Training & Export/Import
+
+Structured agent onboarding with export/import for portable trained agents.
+
+**Training:** 25-scenario curriculum (novice → expert), each running real bloops. LLM + regex evaluators grade results. Progress tracked in project context. Level advancement gated by pass rate thresholds.
+
+**Export:** `AgentExporter.export()` packages a project's memories, KG (entities + edges with properties), skills, and tools into a validated JSON bundle. Training projects only export agent-created artifacts.
+
+**Import modes:**
+- `import()` — creates new project from package (fresh UUIDs, remapped KG references)
+- `importGlobal()` — skills + tools only, no project
+- `importIntoProject()` — merges into existing project
+
+**Key files:** `src/training/types.ts`, `curriculum.ts`, `evaluator.ts`, `sandbox-manager.ts`, `exporter.ts`
 
 ---
 

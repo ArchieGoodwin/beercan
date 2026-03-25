@@ -1604,20 +1604,42 @@ Do NOT rewrite everything — make focused, incremental changes.`,
       case "training:import": {
         const importPath = args[1];
         if (!importPath) {
-          console.log(chalk.red("Usage: beercan training:import <package-path> [--name <slug>]"));
+          console.log(chalk.red("Usage: beercan training:import <package-path> [--name <slug>] [--global] [--project <slug>]"));
+          console.log(chalk.dim("  --global           Import only skills & tools globally (no project created)"));
+          console.log(chalk.dim("  --project <slug>   Import into an existing project"));
+          console.log(chalk.dim("  --name <slug>      Create a new project with this slug (default: from package)"));
           break;
         }
+        const isGlobal = args.includes("--global");
+        const projectIdx = args.indexOf("--project");
+        const targetProject = projectIdx >= 0 ? args[projectIdx + 1] : undefined;
         const nameIdx = args.indexOf("--name");
         const targetSlug = nameIdx >= 0 ? args[nameIdx + 1] : undefined;
 
         try {
-          console.log(chalk.dim(`Importing agent package: ${importPath}`));
-          const project = await engine.importAgent(importPath, targetSlug);
-          console.log(chalk.green(`✓ Agent imported: ${project.name}`));
-          console.log(chalk.dim(`  Slug: ${project.slug}`));
-          console.log(chalk.dim(`  ID:   ${project.id}`));
-          if (targetSlug && targetSlug !== project.slug) {
-            console.log(chalk.dim(`  Note: imported as ${project.slug}`));
+          if (isGlobal) {
+            // Global import: skills + tools only, no project
+            console.log(chalk.dim(`Importing skills & tools globally from: ${importPath}`));
+            const { skills, tools } = await engine.importAgentGlobal(importPath);
+            console.log(chalk.green(`✓ Global import complete`));
+            console.log(chalk.dim(`  Skills imported: ${skills}`));
+            console.log(chalk.dim(`  Tools imported:  ${tools}`));
+          } else if (targetProject) {
+            // Import into existing project
+            console.log(chalk.dim(`Importing agent into project: ${targetProject}`));
+            const project = await engine.importAgentIntoProject(importPath, targetProject);
+            console.log(chalk.green(`✓ Agent imported into: ${project.name}`));
+            console.log(chalk.dim(`  Slug: ${project.slug}`));
+          } else {
+            // Default: create new project from package
+            console.log(chalk.dim(`Importing agent package: ${importPath}`));
+            const project = await engine.importAgent(importPath, targetSlug);
+            console.log(chalk.green(`✓ Agent imported: ${project.name}`));
+            console.log(chalk.dim(`  Slug: ${project.slug}`));
+            console.log(chalk.dim(`  ID:   ${project.id}`));
+            if (targetSlug && targetSlug !== project.slug) {
+              console.log(chalk.dim(`  Note: imported as ${project.slug}`));
+            }
           }
         } catch (err: any) {
           console.log(chalk.red(`Import failed: ${err.message}`));
@@ -1662,7 +1684,8 @@ Do NOT rewrite everything — make focused, incremental changes.`,
         console.log(chalk.cyan("  training:run <project> [--scenario <id>]") + chalk.dim("   Run next (or specific) scenario"));
         console.log(chalk.cyan("  training:status <project>") + chalk.dim("               Show training progress"));
         console.log(chalk.cyan("  training:export <project> [--output <path>]") + chalk.dim(" Export agent package"));
-        console.log(chalk.cyan("  training:import <package> [--name <slug>]") + chalk.dim("  Import agent package"));
+        console.log(chalk.cyan("  training:import <package> [options]") + chalk.dim("        Import agent package"));
+        console.log(chalk.dim("    --name <slug>     Create new project with slug  |  --global  Skills & tools only  |  --project <slug>  Into existing"));
         console.log();
         console.log(chalk.bold("Encryption:"));
         console.log(chalk.cyan("  crypto:setup") + chalk.dim("                          Configure encryption (passphrase or keyfile)"));

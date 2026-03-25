@@ -158,7 +158,7 @@ $ beercan run my-project "Add OAuth2 login with Google provider"
 
 The gatekeeper can also invent custom roles with LLM-generated prompts for unusual tasks.
 
-## 36 Built-in Tools
+## 40 Built-in Tools
 
 | Category | Tools |
 |----------|-------|
@@ -441,6 +441,39 @@ All providers share the same ChatBridge — slash commands and natural language 
 - **Post-bloop reflection** — opt-in learning from completed bloops via lightweight Haiku analysis
 - **Build-verify-integrate** — agents build tools, verify them, and auto-register for future use
 - **Self-scheduling** — agents create their own cron jobs and event triggers
+- **Agent training** — structured 25-scenario curriculum with LLM grading and graduation criteria
+- **Agent export/import** — portable agent packages (memory + KG + skills + tools) for sharing trained agents
+
+## Agent Training Sandbox
+
+Train agents through a structured curriculum of 25 scenarios across 4 difficulty tiers (novice, apprentice, journeyman, expert). Agents earn skills by completing real bloops — no simulation.
+
+```bash
+# Create a training sandbox
+beercan training:create my-agent --work-dir /tmp/sandbox
+
+# Run the next training scenario
+beercan training:run training-my-agent
+
+# Check progress
+beercan training:status training-my-agent
+
+# Export a trained agent (memory + KG + skills + tools)
+beercan training:export training-my-agent --output my-agent-v1.json
+
+# Import into a new project
+beercan training:import my-agent-v1.json --name deployed-agent
+
+# Import skills & tools globally (shared across all projects)
+beercan training:import my-agent-v1.json --global
+
+# Import into an existing project
+beercan training:import my-agent-v1.json --project existing-project
+```
+
+The curriculum tests memory, file ops, web research, debugging, tool creation, spawning, knowledge graphs, and meta-cognition. An LLM evaluator grades each scenario. Graduation requires passing rate thresholds per level plus completing the capstone.
+
+Exported agent packages are portable JSON bundles containing memories, knowledge graph, skills, and tools — import them on any BeerCan instance.
 
 ## CLI Reference
 
@@ -462,6 +495,11 @@ beercan tool:list                       List custom tools
 beercan tool:remove <name>              Remove a custom tool
 beercan skill:create <name>             Scaffold a skill template
 beercan skill:list                      List installed skills
+beercan training:create <name>          Create a training sandbox
+beercan training:run <project>          Run next training scenario
+beercan training:status <project>       Show training progress
+beercan training:export <project>       Export agent package
+beercan training:import <package>       Import agent package
 beercan config set KEY=VALUE            Set a config value
 beercan config get KEY                  Get a config value
 beercan config list                     Show all config
