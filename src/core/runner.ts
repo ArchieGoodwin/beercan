@@ -502,12 +502,24 @@ export class BloopRunner {
     }
 
     const now = new Date();
+    // Precompute upcoming reference dates so agents don't miscalculate relative dates
+    const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+    const currentDay = now.getDay(); // 0=Sun
+    const refDates: string[] = [];
+    for (let offset = 1; offset <= 7; offset++) {
+      const d = new Date(now);
+      d.setDate(d.getDate() + offset);
+      const dayName = dayNames[d.getDay()];
+      refDates.push(`${dayName} = ${d.toLocaleDateString("en-CA")} (${d.toLocaleDateString("en-US", { month: "long", day: "numeric" })})`);
+    }
+
     const sysLines = [
       `Project: ${project.name}`,
       `Your Role: ${role.name} (${role.id})`,
       `Goal: ${goal}`,
       `Current Date/Time: ${now.toLocaleString()} (${Intl.DateTimeFormat().resolvedOptions().timeZone}, UTC${now.getTimezoneOffset() <= 0 ? "+" : "-"}${String(Math.floor(Math.abs(now.getTimezoneOffset()) / 60)).padStart(2, "0")}:${String(Math.abs(now.getTimezoneOffset()) % 60).padStart(2, "0")})`,
       `Today: ${now.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}`,
+      `Next 7 days: ${refDates.join(", ")}`,
     ];
     if (project.workDir) {
       sysLines.push(`Working Directory: ${project.workDir}`);
