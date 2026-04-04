@@ -286,7 +286,7 @@ const CLASSIFY_INTENT_TOOL: LLMTool = {
       },
       projectSlug: {
         type: "string",
-        description: "Project slug, required for run_bloop and optional for bloop_history. Use the context project if not specified.",
+        description: "Project slug, required for run_bloop and optional for bloop_history. Use the context project if set. If no context project, INFER the best matching project from the available list based on the query topic.",
       },
       goal: {
         type: "string",
@@ -345,9 +345,9 @@ async function classifyWithLLM(
     historySummary ? `Recent conversation:\n${historySummary}` : "",
     "",
     "Intent types:",
-    "- run_bloop: user wants to run a task/bloop. Requires projectSlug and goal.",
-    "- check_status: user wants system status, uptime, stats.",
-    "- list_projects: user wants to see all projects.",
+    "- run_bloop: user wants to run a task/bloop OR is asking a question that an agent should answer. Requires projectSlug and goal. WHEN IN DOUBT, USE THIS. If the user is in a project context and asks anything that isn't explicitly about the BeerCan system itself, it's run_bloop.",
+    "- check_status: user wants BeerCan system status, uptime, stats.",
+    "- list_projects: user EXPLICITLY asks to see BeerCan projects (e.g., 'show me my projects', 'list projects', 'what projects do I have'). NEVER use this for questions about calendar events, tasks, schedules, or any domain-specific query.",
     "- bloop_history: user wants to see past bloops, optionally for a specific project.",
     "- bloop_result: user wants details about a specific bloop by ID.",
     "- cancel_job: user wants to cancel a running or pending job.",
@@ -359,7 +359,11 @@ async function classifyWithLLM(
     "- help: user wants help with commands.",
     "- conversation: anything else — provide a helpful conversationResponse IN SKIPPY'S VOICE.",
     "",
-    "If the user asks to run something but does not specify a project, use the context project if available.",
+    "If the user asks to run something but does not specify a project:",
+    "  1. Use the context project if one is set.",
+    "  2. If NO context project is set, INFER the best matching project from the available projects list based on the user's query. For example: 'what's on my calendar next Monday' → projectSlug='calendar', 'fetch AI news' → projectSlug='ai-news'. Match by project name, slug, or obvious domain relevance.",
+    "  3. If no project is a reasonable match, use 'conversation' to ask which project to use.",
+    "ALWAYS set projectSlug in your response for run_bloop — either from context or by inference.",
     "CRITICAL: 'schedule X at Y' = add_schedule. 'do X right now' = run_bloop. Never confuse these.",
   ].join("\n");
 

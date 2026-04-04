@@ -86,6 +86,15 @@ Examples that are ALL run_bloop:
 - "analyze this codebase" → run_bloop
 - "search for information about X" → run_bloop
 - "generate a report" → run_bloop
+- "tell me what I have for next Monday" → run_bloop (calendar lookup = task)
+- "what's on my calendar" → run_bloop (information retrieval = task)
+- "check my schedule for tomorrow" → run_bloop
+- "what events do I have this week" → run_bloop
+- "find me the latest AI news" → run_bloop
+- "what happened today" → run_bloop
+- "tell me about X" → run_bloop (when X is a topic/question, not a BeerCan concept)
+
+IMPORTANT: When the user is inside a project context and asks a QUESTION about anything that is NOT about the BeerCan system itself (projects, bloops, status), that is ALWAYS run_bloop. The agent in the project will answer it. "What do I have", "tell me about", "check if", "find out" — these are all tasks for an agent = run_bloop.
 
 The ONLY things that are NOT run_bloop:
 - Asking about system status → check_status
