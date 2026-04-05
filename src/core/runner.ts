@@ -1,5 +1,6 @@
 import { v4 as uuid } from "uuid";
 import { getConfig } from "../config.js";
+import { getLogger } from "./logger.js";
 import { BeerCanDB } from "../storage/database.js";
 import { ToolRegistry } from "../tools/registry.js";
 import { MemoryManager } from "../memory/index.js";
@@ -323,6 +324,12 @@ export class BloopRunner {
     const roleTools = this.resolveTools(role.allowedTools, project.allowedTools);
     const llmTools = this.tools.toLLMTools(roleTools);
     const toolNames = roleTools.includes("*") ? this.tools.listToolNames() : roleTools;
+
+    // Log tool count — warn if suspiciously low (degraded engine state)
+    if (llmTools.length < 10 && roleTools.includes("*")) {
+      getLogger().warn("runner", `Unexpectedly low tool count — possible engine state degradation`, { llmToolCount: llmTools.length, registeredTools: this.tools.listToolNames().length, role: role.id });
+    }
+    getLogger().debug("runner", `Agent tools resolved`, { llmToolCount: llmTools.length, model });
 
     // Build system prompt (with tool awareness)
     const systemPrompt = this.buildSystemPrompt(
